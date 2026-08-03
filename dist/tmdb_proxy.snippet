@@ -1,0 +1,19 @@
+#!name=TMDB 增强
+#!desc=TMDB API 尽量补全中文标题、TV 演职员接口与角色名汉化，支持本地代理工具脚本和 Vercel/Workers 反向代理。
+#!icon=https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/tmdb.png
+#!homepage=https://github.com/DemoJameson/TMDB-Proxy
+#!author=DemoJameson
+
+# [rewrite_remote]
+# 追加 alternative_titles，并改写 TV credits 请求
+^https:\/\/(?:api\.(?:themoviedb|tmdb)\.org|vidora-tmdb\.wwmm\.date)\/3\/(?:movie|tv|collection)\/\d+(?:(?:\/season\/\d+)?\/credits|\/alternative_titles)?(?:\?.*)?$ url script-request-header https://raw.githubusercontent.com/DemoJameson/TMDB-Proxy/main/dist/tmdb_proxy_request.js
+# 请求图片时优先 WebP 格式
+^https:\/\/image\.tmdb\.org\/.*$ url script-request-header https://raw.githubusercontent.com/DemoJameson/TMDB-Proxy/main/dist/tmdb_proxy_request.js
+# 需要修改的 forwardinfo.vvebo.vip 反代请求重定向到 TMDB
+^https:\/\/forwardinfo\.vvebo\.vip\/(?:movie|tv|collection)\/\d+(?:(?:\/season\/\d+)?\/credits|\/alternative_titles)?(?:\?.*)?$ url script-request-header https://raw.githubusercontent.com/DemoJameson/TMDB-Proxy/main/dist/tmdb_proxy_request.js
+# 中文详情或列表缺标题时从 alternative_titles 回填中文别名，演职员角色名使用豆瓣数据汉化
+^https:\/\/(?:api\.(?:themoviedb|tmdb)\.org|vidora-tmdb\.wwmm\.date)\/3\/.*(?:\?.*)?$ url script-response-body https://raw.githubusercontent.com/DemoJameson/TMDB-Proxy/main/dist/tmdb_proxy_response.js
+# 中文列表缺标题时从 alternative_titles 回填中文别名，演职员角色名使用豆瓣数据汉化
+^https:\/\/forwardinfo\.vvebo\.vip\/.*$ url script-response-body https://raw.githubusercontent.com/DemoJameson/TMDB-Proxy/main/dist/tmdb_proxy_response.js
+# [mitm]
+hostname = api.themoviedb.org, api.tmdb.org, vidora-tmdb.wwmm.date, image.tmdb.org, forwardinfo.vvebo.vip

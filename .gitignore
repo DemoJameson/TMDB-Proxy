@@ -80,7 +80,13 @@ out
 
 # Nuxt.js build / generate output
 .nuxt
-dist
+dist/*
+!dist/tmdb_proxy_request.js
+!dist/tmdb_proxy_response.js
+!dist/tmdb_proxy.plugin
+!dist/tmdb_proxy.sgmodule
+!dist/tmdb_proxy.snippet
+!dist/boxjs.json
 
 # Rollup build output
 js/
@@ -140,3 +146,4 @@ js/
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+.vercel

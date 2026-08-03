@@ -1,0 +1,73 @@
+{
+    "id": "demojameson.app.sub",
+    "name": "DemoJameson 应用订阅",
+    "description": "DemoJameson 的 BoxJs 订阅",
+    "author": "@DemoJameson",
+    "repo": "https://github.com/DemoJameson/TMDB-Proxy",
+    "icon": "https://avatars.githubusercontent.com/u/181192?v=4",
+    "apps": [
+        {
+            "id": "demojameson_tmdb_proxy",
+            "name": "TMDB 增强",
+            "keys": [
+                "@dj_tmdb_proxy_boxjs_configs.aliasFallback",
+                "@dj_tmdb_proxy_boxjs_configs.characterTranslation",
+                "@dj_tmdb_proxy_boxjs_configs.aggregateCredits",
+                "@dj_tmdb_proxy_boxjs_configs.imageWebp",
+                "@dj_tmdb_proxy_boxjs_configs.cacheBackend"
+            ],
+            "author": "@DemoJameson",
+            "repo": "https://github.com/DemoJameson/TMDB-Proxy/tree/main/dist",
+            "icons": [
+                "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/tmdb.png",
+                "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/tmdb.png"
+            ],
+            "settings": [
+                {
+                    "id": "@dj_tmdb_proxy_boxjs_configs.aliasFallback",
+                    "name": "中文别名补全",
+                    "val": true,
+                    "type": "boolean",
+                    "desc": "缺少中文标题时，使用中文别名替代"
+                },
+                {
+                    "id": "@dj_tmdb_proxy_boxjs_configs.characterTranslation",
+                    "name": "中文角色名",
+                    "val": true,
+                    "type": "boolean",
+                    "desc": "使用豆瓣数据将演职员中的中文角色名"
+                },
+                {
+                    "id": "@dj_tmdb_proxy_boxjs_configs.aggregateCredits",
+                    "name": "聚合演职人员",
+                    "val": true,
+                    "type": "boolean",
+                    "desc": "演职人员数据从主演改为整剧/整季演员"
+                },
+                {
+                    "id": "@dj_tmdb_proxy_boxjs_configs.imageWebp",
+                    "name": "WebP 图片",
+                    "val": true,
+                    "type": "boolean",
+                    "desc": "请求 TMDB 图片时优先获取 WebP 格式，更省流量"
+                },
+                {
+                    "id": "@dj_tmdb_proxy_boxjs_configs.cacheBackend",
+                    "name": "缓存后端",
+                    "val": "https://tmdb-proxy.demojameson.de5.net",
+                    "type": "text",
+                    "desc": "远端缓存地址，留空使用默认地址"
+                }
+            ],
+            "descs_html": [
+                "TMDB API 尽量补全中文标题、TV 演职员接口与角色名汉化，支持本地代理工具脚本和 Vercel/Workers 反向代理。",
+                "点此直达 <a href=\"https://github.com/DemoJameson/TMDB-Proxy/tree/main/dist\">项目目录</a>",
+                "Egern 安装：<a href=\"egern:/modules/new?name=TMDB%20Proxy&amp;url=https%3A%2F%2Fraw.githubusercontent.com%2FDemoJameson%2FTMDB-Proxy%2Fmain%2Fdist%2Ftmdb_proxy.plugin\">安装模块</a>",
+                "Loon 安装：<a href=\"https://www.nsloon.com/openloon/import?plugin=https%3A%2F%2Fraw.githubusercontent.com%2FDemoJameson%2FTMDB-Proxy%2Fmain%2Fdist%2Ftmdb_proxy.plugin\">安装插件</a>",
+                "Surge 安装：<a href=\"surge:///install-module?url=https%3A%2F%2Fraw.githubusercontent.com%2FDemoJameson%2FTMDB-Proxy%2Fmain%2Fdist%2Ftmdb_proxy.sgmodule\">安装模块</a>",
+                "QX 安装：<a href=\"https://quantumult.app/x/open-app/add-resource?remote-resource=%7B%22rewrite_remote%22%3A%5B%22https%3A%2F%2Fraw.githubusercontent.com%2FDemoJameson%2FTMDB-Proxy%2Fmain%2Fdist%2Ftmdb_proxy.snippet%2C%20tag%3DTMDB%20Proxy%2C%20enabled%3Dtrue%22%5D%7D\">安装片段</a>",
+                "脚本读取优先级：默认值 < BoxJs < 插件参数。已经在插件参数里填写的值会覆盖 BoxJs。"
+            ]
+        }
+    ]
+}

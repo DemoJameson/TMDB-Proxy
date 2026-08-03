@@ -1,7 +1,61 @@
-# @nsnanocat/template
+# TMDB Proxy
 
-开箱即用的请求/响应脚本模板，同时预留了 Hono + Cloudflare Workers 的 HTTP 运行时入口。  
-An out-of-the-box request/response script template with an optional Hono + Cloudflare Workers HTTP runtime entry.
+TMDB API v3 反向代理与本地代理工具脚本模块。支持 Vercel、Cloudflare Workers，以及 Loon、Egern、Surge、Quantumult X。
+
+## 功能
+
+- 中文 `movie` / `tv` 详情缺少中文标题时，单次请求追加 `alternative_titles`，按地区别名回填并做简繁转换。
+- 返回 `results` 列表的电影、剧集和混合搜索接口，也会为缺中文标题的条目按需请求别名并回填。
+- `zh`、`zh-CN`、`zh-SG`、`zh-TW`、`zh-HK` 分别采用对应的 CN/SG/TW/HK 优先级。
+- TV 系列 `credits` 默认由 TMDB 返回最新一季主要演员；开启 `aggregateCredits` 后返回整剧聚合演员。
+- 演员角色名使用豆瓣数据汉化。
+- 脚本模式会将中文列表别名本地缓存 7 天，固定保存于 `dj_tmdb_proxy_cache`，最多保留 1000 个电影/TV 条目。
+
+## 代理工具订阅
+
+发布文件由 `src/module-manifest.mjs` 统一生成，避免 Loon、Surge、QX 和 BoxJs 参数漂移：
+
+- Loon / Egern: `dist/tmdb_proxy.plugin`
+- Surge: `dist/tmdb_proxy.sgmodule`
+- Quantumult X: `dist/tmdb_proxy.snippet`
+- BoxJs: `dist/boxjs.json`
+
+脚本直接 MITM `api.themoviedb.org`、`api.tmdb.org` 与 `vidora-tmdb.wwmm.date`，不会调用 Vercel 后端。配置优先级为：默认值 < BoxJs < 插件参数。
+
+| 开关 | 默认值 | 说明 |
+| --- | --- | --- |
+| `aliasFallback` | `true` | 中文详情标题缺失时从 `alternative_titles` 回填 |
+| `aggregateCredits` | `true` | TV 系列和季的 `credits` 改为 `aggregate_credits` |
+
+本地别名缓存按媒体类型和 TMDB ID 分层保存，例如 `stores.movie.550.aliases.CN`；一次别名请求会同时缓存 CN、SG、TW、HK 四个区域的中文别名，超出 1000 条时按 FIFO 淘汰。
+
+## HTTP 部署
+
+Vercel 部署后通过 `/api/3/...` 访问，例如：`/api/3/movie/550?language=zh-CN`。请求缺少 `api_key` 时会自动补入内置 TMDB API key；客户端已传入的 `api_key` 会原样保留。
+
+Cloudflare Workers 通过 `/3/...` 直连，例如：`https://xxx.workers.dev/3/movie/550?language=zh-CN`。
+
+本地测试可以启动内置 HTTP 服务：
+
+```bash
+npm run dev
+```
+
+默认监听 `0.0.0.0:8080`，可用 `HOST`、`PORT` 环境变量覆盖。服务同时支持：
+
+- TMDB 代理：`http://127.0.0.1:8080/3/...` 或 `http://127.0.0.1:8080/api/3/...`
+- 本地模块文件：`http://127.0.0.1:8080/TMDB-Proxy/dist/tmdb_proxy.plugin`
+- 健康检查：`http://127.0.0.1:8080/health`
+
+## 构建与验证
+
+```bash
+npm install
+npm test
+npm run format:check
+```
+
+`npm run build` 输出正式脚本，并将三种代理工具配置和 `dist/boxjs.json` 渲染到 `dist/`。`npm run build:dev` 输出调试脚本，并同样刷新这些发布配置。
 
 ## 概览 / Overview
 
@@ -11,8 +65,8 @@ This template centers the core logic around two reusable functions: `Request($re
 你可以把它用在两类场景：  
 You can use it in two runtime styles:
 
-- 脚本运行时：输出 `dist/request.js` 与 `dist/response.js`，适合 Quantumult X、Surge、Loon 等请求/响应改写场景。  
-  Script runtime: build `dist/request.js` and `dist/response.js` for request/response rewriting in tools such as Quantumult X, Surge, and Loon.
+- 脚本运行时：输出 `dist/tmdb_proxy_request.js` 与 `dist/tmdb_proxy_response.js`，并生成 Loon/Egern、Surge、Quantumult X 订阅配置。  
+  Script runtime: build `dist/tmdb_proxy_request.js` and `dist/tmdb_proxy_response.js`, plus subscription files for Loon/Egern, Surge, and Quantumult X.
 - HTTP 运行时：通过根目录 `index.js` 导出 `src/Hono.js`，可直接对接 Vercel 或 Cloudflare Workers。  
   HTTP runtime: the root `index.js` exports `src/Hono.js` and can be wired directly to Vercel or Cloudflare Workers.
 
@@ -73,8 +127,8 @@ npm run build:dev
 构建结果如下：  
 The build outputs are:
 
-- `npm run build` -> `dist/request.js`、`dist/response.js`
-- `npm run build:dev` -> `dist/request.dev.js`、`dist/response.dev.js`
+- `npm run build` -> `dist/tmdb_proxy_request.js`、`dist/tmdb_proxy_response.js`、`dist/tmdb_proxy.plugin`、`dist/tmdb_proxy.sgmodule`、`dist/tmdb_proxy.snippet`、`dist/boxjs.json`
+- `npm run build:dev` -> `dist/tmdb_proxy_request.dev.js`、`dist/tmdb_proxy_response.dev.js`（仅本地调试，默认不跟踪），同时刷新上述发布配置
 
 ### 4. 部署 HTTP 入口 / Deploy the HTTP entry
 
@@ -183,7 +237,7 @@ The `.github` directory already includes reusable workflows, but some depend on 
 | `draft.yml` | push `main` | 生成 GitHub Draft Release | 继承 `build.yml` 的变量；`GITHUB_TOKEN` 为 Actions 内置 | 发布前更新 `CHANGELOG.md` |
 | `pre-release.yml` | push tag `vX.Y.Z-alpha.N` / `vX.Y.Z-beta.N` | 发布预发布版本 | 继承 `build.yml` 的变量；`GITHUB_TOKEN` 为 Actions 内置 | 发布前更新 `CHANGELOG.md` |
 | `release.yml` | push tag `vX.Y.Z` | 发布正式版本 | 继承 `build.yml` 的变量；`GITHUB_TOKEN` 为 Actions 内置 | 发布前更新 `CHANGELOG.md` |
-| `deploy.yml` | push `dev` | 将开发构建产物发布到 Gist | `SUBMODULE_TOKEN`、`PACKAGE_TOKEN`、`GIST_TOKEN`、`GIST_ID`、`GIST_DESCRIPTION` | 将 `GIST_ID` / `GIST_DESCRIPTION` 配置为仓库级变量；`GIST_DESCRIPTION` 留空时会回退到 `package.json` 的 `name + "\\n" + description`；`file_path` 仍需改成真实产物名 |
+| `deploy.yml` | push `dev` | 将构建产物发布到 Gist | `SUBMODULE_TOKEN`、`PACKAGE_TOKEN`、`GIST_TOKEN`、`GIST_ID`、`GIST_DESCRIPTION` | 将 `GIST_ID` / `GIST_DESCRIPTION` 配置为仓库级变量；`GIST_DESCRIPTION` 留空时会回退到 `package.json` 的 `name + "\\n" + description`；脚本路径已指向 `dist/tmdb_proxy_request.js` 与 `dist/tmdb_proxy_response.js` |
 | `workers-dev.yml` | `workflow_dispatch` | 从 `dev` 分支手动部署 Cloudflare Workers | `SUBMODULE_TOKEN`、`PACKAGE_TOKEN`、`CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID` | 确保 `wrangler.jsonc` 与 Cloudflare 项目配置一致 |
 | `workers-release.yml` | `workflow_dispatch` | 从默认分支手动部署 Cloudflare Workers | `SUBMODULE_TOKEN`、`PACKAGE_TOKEN`、`CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID` | 确保 `wrangler.jsonc` 与 Cloudflare 项目配置一致 |
 
@@ -199,7 +253,7 @@ The `.github` directory already includes reusable workflows, but some depend on 
 | `GITHUB_TOKEN` | GitHub Actions built-in secret | `draft.yml`、`pre-release.yml`、`release.yml` | GitHub 自动提供，通常不需要手动创建 |
 | `GIST_ID` | 仓库级 GitHub Actions variable (`vars`) / Repository-scoped GitHub Actions variable (`vars`) | `deploy.yml` | 目标 Gist 的 ID；请求脚本和响应脚本会写入同一个 Gist；请在当前仓库的 `Settings -> Secrets and variables -> Actions -> Variables` 中创建，不要依赖组织级或用户级变量 |
 | `GIST_DESCRIPTION` | 仓库级 GitHub Actions variable (`vars`) / Repository-scoped GitHub Actions variable (`vars`) | `deploy.yml` | 可选的 Gist 描述；优先级高于自动生成值；若未设置或为空，则回退为 `package.json` 的 `name` 与 `description` 换行拼接结果；请在当前仓库级 Variables 中创建 |
-| `file_path` | Workflow 内占位字段 | `deploy.yml` | 需要和实际构建产物一致；当前仓库默认产物是 `dist/request.dev.js` 与 `dist/response.dev.js`，不是 `dist/request.bundle.js` 与 `dist/response.bundle.js` |
+| `file_path` | Workflow 内字段 | `deploy.yml` | 当前指向 `dist/tmdb_proxy_request.js` 与 `dist/tmdb_proxy_response.js` |
 | `build:args` | `package.json` script | `build.yml` | 当前仓库还没有这个脚本；要么补上，要么删除 `extra-command: npm run build:args` |
 | `CHANGELOG.md` | 发布正文文件 | `build.yml`、`draft.yml`、`pre-release.yml`、`release.yml` | 每次发布前按 `.github/RELEASE-TEMPLATE.md` 填好内容 |
 
