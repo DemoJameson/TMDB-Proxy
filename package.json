@@ -23,7 +23,7 @@
 		"@nsnanocat/util": "^2.6.11",
 		"crypto-js": "^4.2.0",
 		"fetch-cookie": "^3.2.0",
-		"hono": "^4.12.12",
+		"hono": "^4.12.27",
 		"node-fetch": "^3.3.2",
 		"node-polyfill-webpack-plugin": "^4.1.0"
 	},
