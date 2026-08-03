@@ -3,8 +3,8 @@ description: Shared Node.js setup and build steps
 
 inputs:
   package-token:
-    description: Token used for npm install
-    required: true
+    description: Optional token used for private npm registries
+    required: false
   node-version:
     description: Node.js version
     default: latest
