@@ -1,7 +1,8 @@
 // 请求脚本入口，负责调用共享请求处理器并完成宿主环境收尾。
 // Request script entry that invokes the shared request processor and finalizes host output.
-import { $app, Console, done, Lodash as _ } from "@nsnanocat/util";
+import { $app, Console, done } from "@nsnanocat/util";
 import { Request } from "./process/Request.dev.mjs";
+
 /***************** Processing *****************/
 let $response;
 !(async () => {
@@ -18,17 +19,15 @@ let $response;
 			// A response object was constructed; return it to the host.
 			case "object":
 				//Console.debug("finally", `echo $response: ${JSON.stringify($response, null, 2)}`);
-				if ($response.headers?.["Content-Encoding"]) $response.headers["Content-Encoding"] = "identity";
-				if ($response.headers?.["content-encoding"]) $response.headers["content-encoding"] = "identity";
+				$response.headers = Object.fromEntries(Object.entries($response.headers ?? {}).filter(([key]) => !["content-length", "transfer-encoding"].includes(key.toLowerCase())));
+				if ($response.headers["Content-Encoding"]) $response.headers["Content-Encoding"] = "identity";
+				if ($response.headers["content-encoding"]) $response.headers["content-encoding"] = "identity";
 				switch ($app) {
 					default:
 						done({ response: $response });
 						break;
 					case "Quantumult X":
 						if (!$response.status) $response.status = 200;
-						delete $response.headers?.["Content-Length"];
-						delete $response.headers?.["content-length"];
-						delete $response.headers?.["Transfer-Encoding"];
 						done($response);
 						break;
 				}

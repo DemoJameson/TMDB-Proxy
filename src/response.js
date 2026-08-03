@@ -1,7 +1,8 @@
 // 响应脚本入口，负责调用共享响应处理器并回传处理结果。
 // Response script entry that invokes the shared response processor and returns the processed result.
-import { Console, done } from "@nsnanocat/util";
 import { Response } from "./process/Response.mjs";
+import { Console, done } from "./runtime/script.mjs";
+
 /***************** Processing *****************/
 !(async () => {
 	// 复用共享响应处理逻辑，避免生产版与开发版入口复制实现。

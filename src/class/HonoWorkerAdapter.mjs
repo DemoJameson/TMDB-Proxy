@@ -42,26 +42,23 @@ import { Lodash as _ } from "@nsnanocat/util";
  */
 export default class HonoWorkerAdapter {
 	/**
-	 * 根据 worker 入口域名与回退路径重写目标路由 URL。
-	 * Rewrite upstream target URL based on the worker host and fallback path.
+	 * 根据 Vercel/Workers 入口路径重写为 TMDB 上游 URL。
+	 * Rewrite incoming path to the TMDB upstream URL.
 	 * @param {URL} url 当前请求 URL / Current request URL.
 	 * @param {string} restPath 回退路由路径 / Fallback route path.
-	 * @returns {URL} 重写后的 URL / Routed URL.
+	 * @returns {URL | null} 重写后的 URL，非代理路径返回 null / Routed URL, or null for non-proxy paths.
 	 */
 	static routeRewrite(url, restPath = "") {
-		switch (true) {
-			default:
-			case url.hostname.endsWith(".workers.dev"): {
-				const [host, ...path] = `${restPath}`.split("/");
-				if (!host) break;
-				url.protocol = "https:";
-				url.hostname = host;
-				url.port = "443";
-				url.pathname = `/${path.join("/")}`;
-				break;
-			}
+		const path = `${restPath}`.replace(/^\/+/, "");
+		const tmdbPath = path.replace(/^api\//, "");
+		if (tmdbPath.startsWith("3/")) {
+			url.protocol = "https:";
+			url.hostname = "api.themoviedb.org";
+			url.port = "443";
+			url.pathname = `/${tmdbPath}`;
+			return url;
 		}
-		return url;
+		return null;
 	}
 
 	/**
@@ -71,7 +68,7 @@ export default class HonoWorkerAdapter {
 	 * @returns {Record<string, unknown>} 解析后的参数对象 / Parsed argument object.
 	 */
 	static parseRequestArguments(search = "") {
-		globalThis.$argument = {};
+		globalThis.$argument ??= {};
 		for (const [key, value] of new URLSearchParams(search).entries()) {
 			_.set(globalThis.$argument, key, value);
 		}
@@ -99,10 +96,11 @@ export default class HonoWorkerAdapter {
 	 * 从 Hono context 构造内部统一请求对象。
 	 * Build the normalized internal request payload from Hono context.
 	 * @param {HonoContext} c Hono 上下文 / Hono context.
-	 * @returns {Promise<WorkerRequest>} 标准化请求对象 / Normalized request object.
+	 * @returns {Promise<WorkerRequest | null>} 标准化请求对象，非代理路径返回 null / Normalized request object, or null for non-proxy paths.
 	 */
 	static async buildRequest(c) {
 		const url = HonoWorkerAdapter.routeRewrite(new URL(c.req.url), c.req.param("rest"));
+		if (!url) return null;
 		const method = c.req.method;
 		let bodyBytes;
 		switch (method) {
@@ -118,9 +116,8 @@ export default class HonoWorkerAdapter {
 				if (!bodyBytes?.byteLength) bodyBytes = undefined;
 				break;
 		}
-		const headers = HonoWorkerAdapter.normalizeRequestHeaders(c.req.header());
-		HonoWorkerAdapter.parseRequestArguments(headers.arguments);
-		delete headers.arguments;
+		const { arguments: argumentHeader, ...headers } = HonoWorkerAdapter.normalizeRequestHeaders(c.req.header());
+		HonoWorkerAdapter.parseRequestArguments(argumentHeader);
 		HonoWorkerAdapter.parseRequestArguments(url.search);
 		Array.from(url.searchParams.keys()).forEach(key => {
 			if (key.startsWith(".")) url.searchParams.delete(key);
@@ -141,13 +138,9 @@ export default class HonoWorkerAdapter {
 	 * @returns {WorkerHeaders} 清理后的响应头 / Cleaned response headers.
 	 */
 	static cleanupResponseHeaders(headers = {}) {
-		const normalizedHeaders = { ...headers };
+		const normalizedHeaders = Object.fromEntries(Object.entries(headers).filter(([key]) => !["content-length", "transfer-encoding"].includes(key.toLowerCase())));
 		if (normalizedHeaders["Content-Encoding"]) normalizedHeaders["Content-Encoding"] = "identity";
 		if (normalizedHeaders["content-encoding"]) normalizedHeaders["content-encoding"] = "identity";
-		delete normalizedHeaders["Content-Length"];
-		delete normalizedHeaders["content-length"];
-		delete normalizedHeaders["Transfer-Encoding"];
-		delete normalizedHeaders["transfer-encoding"];
 		return normalizedHeaders;
 	}
 

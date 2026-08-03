@@ -1,0 +1,22 @@
+#!name=TMDB 增强
+#!desc=TMDB API 尽量补全中文标题、TV 演职员接口与角色名汉化，支持本地代理工具脚本和 Vercel/Workers 反向代理。
+#!icon=https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/tmdb.png
+#!homepage=https://github.com/DemoJameson/TMDB-Proxy
+#!author=DemoJameson
+#!arguments=aliasFallback:"true", characterTranslation:"true", aggregateCredits:"true", imageWebp:"true", cacheBackend:"https://tmdb-proxy.demojameson.de5.net"
+#!arguments-desc=aliasFallback: 缺少中文标题时，使用中文别名替代\ncharacterTranslation: 使用豆瓣数据将演职员中的中文角色名\naggregateCredits: 演职人员数据从主演改为整剧/整季演员\nimageWebp: 请求 TMDB 图片时优先获取 WebP 格式，更省流量\ncacheBackend: 远端缓存地址，留空使用默认地址
+
+[Script]
+# 追加 alternative_titles，并改写 TV credits 请求
+TMDB Request = type=http-request, pattern=^https:\/\/(?:api\.(?:themoviedb|tmdb)\.org|vidora-tmdb\.wwmm\.date)\/3\/(?:movie|tv|collection)\/\d+(?:(?:\/season\/\d+)?\/credits|\/alternative_titles)?(?:\?.*)?$, timeout=10, argument={{{aliasFallback}}},{{{characterTranslation}}},{{{aggregateCredits}}},{{{imageWebp}}},{{{cacheBackend}}}, script-path=https://raw.githubusercontent.com/DemoJameson/TMDB-Proxy/main/dist/tmdb_proxy_request.js
+# 请求图片时优先 WebP 格式
+TMDB Image Request = type=http-request, pattern=^https:\/\/image\.tmdb\.org\/.*$, timeout=10, argument={{{aliasFallback}}},{{{characterTranslation}}},{{{aggregateCredits}}},{{{imageWebp}}},{{{cacheBackend}}}, script-path=https://raw.githubusercontent.com/DemoJameson/TMDB-Proxy/main/dist/tmdb_proxy_request.js
+# 需要修改的 forwardinfo.vvebo.vip 反代请求重定向到 TMDB
+Forward 播放器反代重定向 = type=http-request, pattern=^https:\/\/forwardinfo\.vvebo\.vip\/(?:movie|tv|collection)\/\d+(?:(?:\/season\/\d+)?\/credits|\/alternative_titles)?(?:\?.*)?$, timeout=10, argument={{{aliasFallback}}},{{{characterTranslation}}},{{{aggregateCredits}}},{{{imageWebp}}},{{{cacheBackend}}}, script-path=https://raw.githubusercontent.com/DemoJameson/TMDB-Proxy/main/dist/tmdb_proxy_request.js
+# 中文详情或列表缺标题时从 alternative_titles 回填中文别名，演职员角色名使用豆瓣数据汉化
+TMDB Response = type=http-response, pattern=^https:\/\/(?:api\.(?:themoviedb|tmdb)\.org|vidora-tmdb\.wwmm\.date)\/3\/.*(?:\?.*)?$, requires-body=true, max-size=0, timeout=60, argument={{{aliasFallback}}},{{{characterTranslation}}},{{{aggregateCredits}}},{{{imageWebp}}},{{{cacheBackend}}}, script-path=https://raw.githubusercontent.com/DemoJameson/TMDB-Proxy/main/dist/tmdb_proxy_response.js
+# 中文列表缺标题时从 alternative_titles 回填中文别名，演职员角色名使用豆瓣数据汉化
+Forward 播放器反代响应 = type=http-response, pattern=^https:\/\/forwardinfo\.vvebo\.vip\/.*$, requires-body=true, max-size=0, timeout=60, argument={{{aliasFallback}}},{{{characterTranslation}}},{{{aggregateCredits}}},{{{imageWebp}}},{{{cacheBackend}}}, script-path=https://raw.githubusercontent.com/DemoJameson/TMDB-Proxy/main/dist/tmdb_proxy_response.js
+
+[MITM]
+hostname = %APPEND% api.themoviedb.org, api.tmdb.org, vidora-tmdb.wwmm.date, image.tmdb.org, forwardinfo.vvebo.vip
