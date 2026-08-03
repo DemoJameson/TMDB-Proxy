@@ -1,0 +1,38 @@
+name: Build
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          token: ${{ secrets.SUBMODULE_TOKEN }}
+      - name: Update Package Version from Tag
+        if: github.ref_type == 'tag'
+        uses: BellCubeDev/update-package-version-by-release-tag@v2
+        with:
+          version: ${{ github.ref_name }}
+          keep-v: "false" # If set to "true", will not remove any 'v' prefix from the version number.
+          ignore-semver-check: "false" # If set to "true", will not check if the version number is a valid semver version.
+      - name: Run Build Pipeline
+        uses: ./.github/actions/node-build
+        with:
+          package-token: ${{ secrets.PACKAGE_TOKEN }}
+          build-command: npm run build
+          extra-command: npm run build:args
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifact
+          path: |
+            CHANGELOG.md
+            dist

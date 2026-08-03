@@ -1,0 +1,46 @@
+// Cloudflare Workers 主配置文件，供 Wrangler 本地开发与部署使用。
+// Primary Cloudflare Workers configuration used by Wrangler for local development and deployment.
+{
+  // Worker 入口文件，当前使用根目录统一部署入口。
+  // Worker entry file, currently using the unified deployment entry at the repository root.
+  "main": "index.js",
+
+  // 兼容性日期用于锁定 Workers 运行时行为，升级时建议显式更新。
+  // Compatibility date pins Workers runtime behavior and should be updated explicitly when upgrading.
+  "compatibility_date": "2025-11-21",
+
+  // 启用 Node.js 兼容层，供 Hono 与相关依赖使用。
+  // Enables the Node.js compatibility layer required by Hono and related dependencies.
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+
+  // 可观测性配置，控制日志与追踪的采样和持久化策略。
+  // Observability settings control sampling and persistence for logs and traces.
+  "observability": {
+    // 顶层开关，关闭时可阻止自动启用完整观测能力。
+    // Top-level switch that prevents full observability from being enabled automatically when false.
+    "enabled": false,
+
+    // 默认采样率，1 代表对所有请求采样。
+    // Default sampling rate; 1 means every request is sampled.
+    "head_sampling_rate": 1,
+
+    // 日志配置，适合部署后排查请求和异常。
+    // Log settings used for inspecting requests and failures after deployment.
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "persist": true,
+      "invocation_logs": true
+    },
+
+    // 追踪配置，适合分析请求链路和性能数据。
+    // Trace settings used for analyzing request flows and performance data.
+    "traces": {
+      "enabled": true,
+      "persist": true,
+      "head_sampling_rate": 1
+    }
+  }
+}

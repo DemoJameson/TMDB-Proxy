@@ -1,0 +1,37 @@
+{
+	"name": "@nsnanocat/template",
+	"version": "1.1.0",
+	"description": "开箱即用的脚本模板仓库 - Out-of-the-box script template repository",
+	"scripts": {
+		"build": "rollup -c",
+		"build:dev": "rollup --config --configDev",
+		"build:watch": "rollup -c -w"
+	},
+	"keywords": [
+		"template",
+		"nsnanocat",
+		"script",
+		"rollup",
+		"hono"
+	],
+	"author": "NSNanoCat",
+	"license": "MIT",
+	"dependencies": {
+		"@biomejs/biome": "^2.4.11",
+		"@nsnanocat/grpc": "^1.1.0",
+		"@nsnanocat/url": "^1.2.5",
+		"@nsnanocat/util": "^2.6.11",
+		"crypto-js": "^4.2.0",
+		"fetch-cookie": "^3.2.0",
+		"hono": "^4.12.12",
+		"node-fetch": "^3.3.2",
+		"node-polyfill-webpack-plugin": "^4.1.0"
+	},
+	"devDependencies": {
+		"@rollup/plugin-commonjs": "^25.0.8",
+		"@rollup/plugin-json": "^6.1.0",
+		"@rollup/plugin-node-resolve": "^16.0.3",
+		"@rollup/plugin-terser": "^0.4.4",
+		"rollup": "^4.60.1"
+	}
+}
