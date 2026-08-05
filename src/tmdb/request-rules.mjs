@@ -50,7 +50,7 @@ async function applyTmdbRequestRules(request, options = {}) {
 	const url = new URL(request.url);
 	const config = resolveProxyConfig({ argument: options.argument, env: options.env, url });
 	const route = parseTmdbRoute(url);
-	const state = { hadClientAlternativeTitles: false, hadClientTranslations: false, aggregateCreditsRewrite: false, appendCreditsRewrite: false, hadClientAggregateCreditsAppend: false };
+	const state = { hadClientAlternativeTitles: false, hadClientTranslations: false, hadClientExternalIds: false, aggregateCreditsRewrite: false, appendCreditsRewrite: false, hadClientAggregateCreditsAppend: false };
 	const hasAuthorization = Object.keys(request.headers ?? {}).some(key => key.toLowerCase() === "authorization");
 	const apiKey = getTmdbApiKey(options.env);
 	if (isTmdbCompatiblePath(url) && !url.searchParams.get("api_key") && !hasAuthorization) url.searchParams.set("api_key", apiKey);
@@ -60,7 +60,7 @@ async function applyTmdbRequestRules(request, options = {}) {
 		tmdbUrl.pathname = "/3" + url.pathname;
 		const forwardRoute = parseTmdbRoute(tmdbUrl);
 		let needsRedirect = false;
-		if (forwardRoute?.isDetail && config.aliasFallback && isChineseLanguage(getRequestLanguage(url))) needsRedirect = true;
+		if (forwardRoute?.isDetail && isChineseLanguage(getRequestLanguage(url)) && (config.aliasFallback || (config.characterTranslation && !forwardRoute.isCollectionDetail))) needsRedirect = true;
 		if (forwardRoute?.mediaType === "tv" && config.aggregateCredits) {
 			if (forwardRoute.isTvCredits || forwardRoute.isTvSeasonCredits) {
 				needsRedirect = true;
@@ -87,11 +87,18 @@ async function applyTmdbRequestRules(request, options = {}) {
 		return { $request: request, state, config };
 	}
 
-	if (route.isDetail && config.aliasFallback && isChineseLanguage(getRequestLanguage(url))) {
-		const endpoint = route.isCollectionDetail ? "translations" : "alternative_titles";
-		const result = appendToResponse(url, endpoint);
-		if (route.isCollectionDetail) state.hadClientTranslations = result.hadValue;
-		else state.hadClientAlternativeTitles = result.hadValue;
+	if (route.isDetail && (config.aliasFallback || config.characterTranslation) && isChineseLanguage(getRequestLanguage(url))) {
+		if (route.isCollectionDetail) {
+			if (config.aliasFallback) {
+				const result = appendToResponse(url, "translations");
+				state.hadClientTranslations = result.hadValue;
+			}
+		} else {
+			const altResult = appendToResponse(url, "alternative_titles");
+			state.hadClientAlternativeTitles = altResult.hadValue;
+			const extResult = appendToResponse(url, "external_ids");
+			state.hadClientExternalIds = extResult.hadValue;
+		}
 	}
 
 	if (route.mediaType === "tv" && config.aggregateCredits) {
@@ -108,7 +115,7 @@ async function applyTmdbRequestRules(request, options = {}) {
 
 	request.url = url.toString();
 	request.headers ??= {};
-	if (state.hadClientAlternativeTitles || state.hadClientTranslations || state.aggregateCreditsRewrite || state.appendCreditsRewrite || (route.isDetail && config.aliasFallback)) request.headers[STATE_HEADER] = encodeState(state);
+	if (state.hadClientAlternativeTitles || state.hadClientTranslations || state.hadClientExternalIds || state.aggregateCreditsRewrite || state.appendCreditsRewrite || (route.isDetail && (config.aliasFallback || config.characterTranslation))) request.headers[STATE_HEADER] = encodeState(state);
 	return { $request: request, state, config };
 }
 

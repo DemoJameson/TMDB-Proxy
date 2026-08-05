@@ -2,7 +2,8 @@ const CACHE_KEY = "dj_tmdb_proxy_cache";
 const CACHE_VERSION = 2;
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const CACHE_NEGATIVE_TTL_MS = 24 * 60 * 60 * 1000;
-const CACHE_MAX_ENTRIES = 1000;
+const CACHE_FULL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const CACHE_MAX_BYTES = 512 * 1024;
 
 function createEmptyCache() {
 	return { version: CACHE_VERSION, stores: { movie: {}, tv: {} } };
@@ -60,6 +61,12 @@ function readCache(storage) {
 	}
 }
 
+function cacheByteSize(cache) {
+	const json = JSON.stringify(cache);
+	if (typeof TextEncoder !== "undefined") return new TextEncoder().encode(json).length;
+	return json.length;
+}
+
 function pruneCache(cache, now = Date.now()) {
 	const entries = [];
 	for (const mediaType of ["movie", "tv"]) {
@@ -71,8 +78,12 @@ function pruneCache(cache, now = Date.now()) {
 			entries.push({ mediaType, id, createdAt: entry.createdAt });
 		}
 	}
+	if (cacheByteSize(cache) <= CACHE_MAX_BYTES) return cache;
 	entries.sort((a, b) => a.createdAt - b.createdAt);
-	for (const entry of entries.slice(0, Math.max(0, entries.length - CACHE_MAX_ENTRIES))) delete cache.stores[entry.mediaType][entry.id];
+	for (const entry of entries) {
+		delete cache.stores[entry.mediaType][entry.id];
+		if (cacheByteSize(cache) <= CACHE_MAX_BYTES) break;
+	}
 	return cache;
 }
 
@@ -114,4 +125,4 @@ function getCacheField(cache, mediaType, id, fieldName, now = Date.now()) {
 	return entry?.[fieldName];
 }
 
-export { CACHE_KEY, CACHE_MAX_ENTRIES, CACHE_NEGATIVE_TTL_MS, CACHE_TTL_MS, CACHE_VERSION, createEmptyCache, getCacheEntry, getCacheField, isValidEntry, normalizeCache, pruneCache, readCache, setCacheEntry, updateCacheEntry, writeCache };
+export { CACHE_KEY, CACHE_MAX_BYTES, CACHE_NEGATIVE_TTL_MS, CACHE_FULL_TTL_MS, CACHE_TTL_MS, CACHE_VERSION, createEmptyCache, getCacheEntry, getCacheField, isValidEntry, normalizeCache, pruneCache, readCache, setCacheEntry, updateCacheEntry, writeCache };

@@ -22,8 +22,8 @@ const argumentFields = [
 		key: "aliasFallback",
 		defaultValue: true,
 		type: "boolean",
-		tag: "中文别名补全",
-		desc: "缺少中文标题时，使用中文别名替代",
+		tag: "中文标题",
+		desc: "缺少中文标题时，使用别名补全",
 	},
 	{
 		key: "characterTranslation",

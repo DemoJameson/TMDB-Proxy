@@ -7,7 +7,8 @@ import TWVariants from "opencc-js/dict/TWVariants";
 import TWVariantsPhrases from "opencc-js/dict/TWVariantsPhrases";
 import { CACHE_NEGATIVE_TTL_MS, CACHE_TTL_MS } from "./cache.mjs";
 import { fireCacheWrite } from "./cache-store.mjs";
-import { buildAlternativeTitlesUrl, getRequestLanguage, isChineseLanguage, isForwardHost, isTmdbCompatiblePath, parseTmdbRoute } from "./routes.mjs";
+import { extractFallbackInfoFromBody, extractOriginCountries } from "./characters.mjs";
+import { buildMediaDetailUrl, getRequestLanguage, isChineseLanguage, isForwardHost, isTmdbCompatiblePath, parseTmdbRoute } from "./routes.mjs";
 
 const HAN_REGEX = /[\u3400-\u9fff]/;
 const LANGUAGE_REGIONS = {
@@ -91,6 +92,13 @@ function removeAutoAlternativeTitles(body, hadClientAlternativeTitles) {
 	return cleanedBody;
 }
 
+function removeAutoExternalIds(body, hadClientExternalIds) {
+	if (hadClientExternalIds || !body || typeof body !== "object") return body;
+	const { external_ids, ...cleanedBody } = body;
+	void external_ids;
+	return cleanedBody;
+}
+
 function readTranslations(body) {
 	return Array.isArray(body?.translations) ? body.translations : [];
 }
@@ -113,10 +121,11 @@ function removeAutoTranslations(body, hadClientTranslations) {
 
 async function applyChineseAliasFallback(requestUrl, body, options = {}) {
 	const route = parseTmdbRoute(requestUrl);
-	if (!route?.isDetail || !options.aliasFallback) return body;
+	if (!route?.isDetail || !(options.aliasFallback || options.characterTranslation)) return body;
 	const language = getRequestLanguage(route.url);
 	if (!isChineseLanguage(language)) return body;
 	if (route.isCollectionDetail) {
+		if (!options.aliasFallback) return body;
 		if (!hasHan(body?.name)) {
 			const translation = pickChineseTranslation(readTranslations(body), language);
 			if (translation) body.name = translation;
@@ -126,14 +135,35 @@ async function applyChineseAliasFallback(requestUrl, body, options = {}) {
 	const titleField = route.mediaType === "movie" ? "title" : "name";
 	const titles = readAlternativeTitles(body, route.mediaType);
 	const aliases = extractRegionalAliases(titles);
+	// 从详情响应提取角色名汉化所需字段（imdbId、originCountries、title、year），在详情接口响应时即缓存。
+	// Extract character-translation fields (imdbId, originCountries, title, year) from detail response and cache at detail response time.
+	const detailFields = {};
+	const { title, year } = extractFallbackInfoFromBody(body, route.mediaType);
+	const originCountries = extractOriginCountries(body);
+	const imdbId = String(body?.imdb_id ?? body?.external_ids?.imdb_id ?? "").trim();
+	if (imdbId) detailFields.imdbId = imdbId;
+	if (title) { detailFields.title = title; detailFields.year = year; }
+	if (originCountries.length > 0) detailFields.originCountries = originCountries;
+
 	const cacheStore = options.cacheStore;
-	const ttl = Object.keys(aliases).length > 0 ? CACHE_TTL_MS : CACHE_NEGATIVE_TTL_MS;
-	await fireCacheWrite(cacheStore?.merge(route.mediaType, route.mediaId, { aliases }, ttl, options.now), options.waitUntil);
-	if (!hasHan(body?.[titleField])) {
-		const alias = pickChineseAlias(titles, language);
-		if (alias) body[titleField] = alias;
+	const hasDetailFields = Object.keys(detailFields).length > 0;
+	const cacheData = { aliases, ...detailFields };
+	const hasCacheData = Object.keys(aliases).length > 0 || hasDetailFields;
+	if (options.aliasFallback) {
+		const ttl = hasCacheData ? CACHE_TTL_MS : CACHE_NEGATIVE_TTL_MS;
+		await fireCacheWrite(cacheStore?.merge(route.mediaType, route.mediaId, cacheData, ttl, options.now), options.waitUntil);
+	} else if (hasCacheData) {
+		await fireCacheWrite(cacheStore?.merge(route.mediaType, route.mediaId, cacheData, CACHE_TTL_MS, options.now), options.waitUntil);
 	}
-	return removeAutoAlternativeTitles(body, options.hadClientAlternativeTitles);
+	if (options.aliasFallback) {
+		if (!hasHan(body?.[titleField])) {
+			const alias = pickChineseAlias(titles, language);
+			if (alias) body[titleField] = alias;
+		}
+	}
+	body = removeAutoAlternativeTitles(body, options.hadClientAlternativeTitles);
+	body = removeAutoExternalIds(body, options.hadClientExternalIds);
+	return body;
 }
 
 function inferListItemMediaType(item) {
@@ -157,12 +187,6 @@ function getListItemsForAliasFallback(requestUrl, body) {
 	return undefined;
 }
 
-function readFetchedAlternativeTitles(body, mediaType) {
-	if (mediaType === "movie") return Array.isArray(body?.titles) ? body.titles : [];
-	if (mediaType === "tv") return Array.isArray(body?.results) ? body.results : [];
-	return [];
-}
-
 function isTmdbListResponse(requestUrl, body, options = {}) {
 	if (!options.aliasFallback || !body || !getListItemsForAliasFallback(requestUrl, body)) return false;
 	const url = requestUrl instanceof URL ? requestUrl : new URL(requestUrl);
@@ -170,7 +194,7 @@ function isTmdbListResponse(requestUrl, body, options = {}) {
 	return isTmdbCompatiblePath(url) && isChineseLanguage(getRequestLanguage(url));
 }
 
-function createListAliasRequest(sourceRequest, mediaType, mediaId) {
+function createListDetailRequest(sourceRequest, mediaType, mediaId, language) {
 	const sourceUrl = new URL(sourceRequest.url);
 	const isForward = isForwardHost(sourceUrl.hostname);
 	if (isForward) {
@@ -178,7 +202,9 @@ function createListAliasRequest(sourceRequest, mediaType, mediaId) {
 		sourceUrl.pathname = `/3${sourceUrl.pathname}`;
 		sourceUrl.search = "";
 	}
-	const url = buildAlternativeTitlesUrl(sourceUrl, mediaType, mediaId);
+	const url = buildMediaDetailUrl(sourceUrl, mediaType, mediaId);
+	url.searchParams.set("append_to_response", "alternative_titles,external_ids");
+	if (language && !url.searchParams.get("language")) url.searchParams.set("language", language);
 	const headers = Object.fromEntries(Object.entries(sourceRequest.headers ?? {}).filter(([key]) => key.toLowerCase() !== "x-tmdb-proxy-state"));
 	if (isForward) {
 		delete headers.authorization;
@@ -234,14 +260,26 @@ async function applyChineseAliasFallbackToList(request, body, options = {}) {
 			if (alias) item[titleField] = alias;
 			return;
 		}
-		const aliasResponse = await fetcher(createListAliasRequest(request, mediaType, item.id)).catch(() => undefined);
-		if (!aliasResponse?.ok && !(aliasResponse?.status >= 200 && aliasResponse?.status < 300)) return;
+		const detailResponse = await fetcher(createListDetailRequest(request, mediaType, item.id, language)).catch(() => undefined);
+		if (!detailResponse?.ok && !(detailResponse?.status >= 200 && detailResponse?.status < 300)) return;
 		try {
-			const aliasBody = JSON.parse(aliasResponse.body ?? "{}");
-			const aliases = extractRegionalAliases(readFetchedAlternativeTitles(aliasBody, mediaType));
+			const detailBody = JSON.parse(detailResponse.body ?? "{}");
+			const titles = readAlternativeTitles(detailBody, mediaType);
+			const aliases = extractRegionalAliases(titles);
 			const alias = pickChineseAliasFromRegions(aliases, language);
-			const ttl = Object.keys(aliases).length > 0 ? CACHE_TTL_MS : CACHE_NEGATIVE_TTL_MS;
-			newEntries.push({ mediaType, id: String(item.id), data: { aliases }, ttlMs: ttl });
+			// 从详情响应提取全部字段并缓存
+			// Extract all detail fields from detail response and cache
+			const detailFields = {};
+			const { title, year } = extractFallbackInfoFromBody(detailBody, mediaType);
+			const originCountries = extractOriginCountries(detailBody);
+			const imdbId = String(detailBody?.imdb_id ?? detailBody?.external_ids?.imdb_id ?? "").trim();
+			if (imdbId) detailFields.imdbId = imdbId;
+			if (title) { detailFields.title = title; detailFields.year = year; }
+			if (originCountries.length > 0) detailFields.originCountries = originCountries;
+			const cacheData = { aliases, ...detailFields };
+			const hasData = Object.keys(aliases).length > 0 || Object.keys(detailFields).length > 0;
+			const ttl = hasData ? CACHE_TTL_MS : CACHE_NEGATIVE_TTL_MS;
+			newEntries.push({ mediaType, id: String(item.id), data: cacheData, ttlMs: ttl });
 			if (alias) item[titleField] = alias;
 		} catch {
 			return;
@@ -255,7 +293,7 @@ export {
 	applyChineseAliasFallback,
 	applyChineseAliasFallbackToList,
 	convertChinese,
-	createListAliasRequest,
+	createListDetailRequest,
 	extractRegionalAliases,
 	getPreferredRegions,
 	hasHan,
@@ -264,6 +302,5 @@ export {
 	pickChineseAliasFromRegions,
 	pickChineseTranslation,
 	readAlternativeTitles,
-	readFetchedAlternativeTitles,
 	readTranslations,
 };

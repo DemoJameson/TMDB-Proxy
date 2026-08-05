@@ -25,10 +25,10 @@
             "settings": [
                 {
                     "id": "@dj_tmdb_proxy_boxjs_configs.aliasFallback",
-                    "name": "中文别名补全",
+                    "name": "中文标题",
                     "val": true,
                     "type": "boolean",
-                    "desc": "缺少中文标题时，使用中文别名替代"
+                    "desc": "缺少中文标题时，使用别名补全"
                 },
                 {
                     "id": "@dj_tmdb_proxy_boxjs_configs.characterTranslation",

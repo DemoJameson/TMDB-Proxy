@@ -5,7 +5,7 @@
 #!author=DemoJameson
 
 [Argument]
-aliasFallback = switch, "true", tag=中文别名补全, desc=缺少中文标题时，使用中文别名替代
+aliasFallback = switch, "true", tag=中文标题, desc=缺少中文标题时，使用别名补全
 characterTranslation = switch, "true", tag=中文角色名, desc=使用豆瓣数据将演职员中的中文角色名
 aggregateCredits = switch, "true", tag=聚合演职人员, desc=演职人员数据从主演改为整剧/整季演员
 imageWebp = switch, "true", tag=WebP 图片, desc=请求 TMDB 图片时优先获取 WebP 格式，更省流量

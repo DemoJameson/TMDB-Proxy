@@ -76,8 +76,10 @@ async function applyTmdbResponseRules(request, response, options = {}) {
 		}
 		body = await applyChineseAliasFallback(request.url, body, {
 			aliasFallback: config.aliasFallback,
+			characterTranslation: config.characterTranslation,
 			hadClientAlternativeTitles: Boolean(state.hadClientAlternativeTitles),
 			hadClientTranslations: Boolean(state.hadClientTranslations),
+			hadClientExternalIds: Boolean(state.hadClientExternalIds),
 			cacheStore,
 			now: options.now,
 			waitUntil: options.waitUntil,

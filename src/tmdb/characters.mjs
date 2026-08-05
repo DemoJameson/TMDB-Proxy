@@ -1,6 +1,6 @@
 import { convertChinese, hasHan } from "./aliases.mjs";
 import { fetchDoubanCreditsStats, fetchDoubanSeasons, mergeDoubanCredits, NetworkError, normalizeDoubanCreditsPayload, searchDoubanSubject } from "./douban.mjs";
-import { CACHE_NEGATIVE_TTL_MS, CACHE_TTL_MS } from "./cache.mjs";
+import { CACHE_FULL_TTL_MS, CACHE_NEGATIVE_TTL_MS, CACHE_TTL_MS } from "./cache.mjs";
 import { fireCacheWrite } from "./cache-store.mjs";
 import { buildExternalIdsUrl, buildMediaDetailUrl, getRequestLanguage, isChineseLanguage, isForwardHost, parseTmdbRoute } from "./routes.mjs";
 import { DEFAULT_TMDB_API_KEY, getTmdbApiKey, STATE_HEADER } from "./request-rules.mjs";
@@ -76,7 +76,7 @@ async function resolveImdbId(route, body, request, fetcher, entry, apiKey) {
 	return imdbId || null;
 }
 
-function extractFallbackInfoFromBody(body, mediaType) {
+export function extractFallbackInfoFromBody(body, mediaType) {
 	const titleField = mediaType === "movie" ? "title" : "name";
 	const dateField = mediaType === "movie" ? "release_date" : "first_air_date";
 	const title = String(body?.[titleField] ?? "").trim();
@@ -88,7 +88,7 @@ function extractFallbackInfoFromBody(body, mediaType) {
 
 // 从响应体提取制片地区（origin_country 优先，回退到 production_countries）。
 // Extracts production countries from body (origin_country first, then production_countries).
-function extractOriginCountries(body) {
+export function extractOriginCountries(body) {
 	const countries = Array.isArray(body?.origin_country) ? body.origin_country : [];
 	if (countries.length > 0) return countries.map(c => String(c ?? "").trim().toUpperCase()).filter(Boolean);
 	if (Array.isArray(body?.production_countries)) {
@@ -223,10 +223,11 @@ export async function applyCharacterTranslation(request, body, options = {}) {
 	const cacheStore = options.cacheStore;
 	if (typeof fetcher !== "function" || !cacheStore) return body;
 	const apiKey = getTmdbApiKey(options.env);
-	const entry = (await cacheStore.getWithFields(route.mediaType, route.mediaId, ["imdbId", "doubanId", "characters", "originCountries"], options.now)) ?? {};
+	const entry = (await cacheStore.getWithFields(route.mediaType, route.mediaId, ["imdbId", "doubanId", "characters", "originCountries", "aliases", "title", "year"], options.now)) ?? {};
 	try {
 		const imdbId = await resolveImdbId(route, body, request, fetcher, entry, apiKey);
 		const { title: fallbackTitle, year: fallbackYear, originCountries } = await resolveFallbackInfo(route, body, request, fetcher, entry, apiKey);
+		const hasChineseSource = hasHan(entry?.title) || (entry?.aliases && Object.keys(entry.aliases).length > 0);
 		// 仅对中日韩影片（含港澳台）汉化角色名，非 CJK 影片跳过。
 		// Only translate characters for CJK productions (including HK, MO, TW); skip non-CJK.
 		if (!isCjkProduction(originCountries)) {
@@ -236,14 +237,15 @@ export async function applyCharacterTranslation(request, body, options = {}) {
 		}
 		const doubanIds = await resolveDoubanIds(route.mediaType, imdbId, fetcher, entry, fallbackTitle, fallbackYear);
 		if (doubanIds.length === 0) {
-			const ttl = CACHE_NEGATIVE_TTL_MS;
+			const ttl = hasChineseSource ? CACHE_TTL_MS : CACHE_NEGATIVE_TTL_MS;
 			await fireCacheWrite(cacheStore.set(route.mediaType, route.mediaId, entry, ttl, options.now), options.waitUntil);
 			return body;
 		}
 		const doubanCredits = await collectDoubanCredits(doubanIds, fetcher, entry);
-		const ttl = Object.keys(doubanCredits).length > 0 ? CACHE_TTL_MS : CACHE_NEGATIVE_TTL_MS;
+		const hasCharacters = Object.keys(doubanCredits).length > 0;
+		const ttl = hasCharacters && hasChineseSource ? CACHE_FULL_TTL_MS : hasCharacters || hasChineseSource ? CACHE_TTL_MS : CACHE_NEGATIVE_TTL_MS;
 		await fireCacheWrite(cacheStore.set(route.mediaType, route.mediaId, entry, ttl, options.now), options.waitUntil);
-		if (Object.keys(doubanCredits).length > 0) applyCharacterTranslations(credits.cast, doubanCredits, language);
+		if (hasCharacters) applyCharacterTranslations(credits.cast, doubanCredits, language);
 	} catch (error) {
 		// 网络错误（请求未成功完成）不写入缓存，下次请求会重试。
 		// Network errors (request did not complete successfully) are not cached; next request will retry.

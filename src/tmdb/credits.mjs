@@ -1,4 +1,4 @@
-const MAX_DIRECTORS = 3;
+const MAX_DIRECTORS = 2;
 
 function joinCreditValues(items, key) {
 	return (Array.isArray(items) ? items : [])
@@ -45,7 +45,7 @@ function hasProfilePath(item) {
 }
 
 // 限制导演数量：按导过的集数降序取前 MAX_DIRECTORS 个，过滤掉无头像的，至少保留一个。
-// Limits directors: takes top MAX_DIRECTORS by episode count (desc), filters out those without profile photos, keeps at least one.
+// Limits directors: takes top 2 by episode count (desc), filters out those without profile photos, keeps at least one.
 function limitDirectors(crew) {
 	if (!Array.isArray(crew)) return crew;
 	const directors = crew.filter(isDirector);
