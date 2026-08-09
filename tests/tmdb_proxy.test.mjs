@@ -1316,6 +1316,276 @@ test("配音角色名追加（配音）后缀", async () => {
 	assert.equal(JSON.parse(response.body).credits.cast[0].character, "孙悟空（配音）");
 });
 
+test("TMDB 角色名 (voice) 无豆瓣匹配时替换为配音", async () => {
+	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
+	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits", headers: {} };
+	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	const response = {
+		status: 200,
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({
+			title: "Fight Club",
+			imdb_id: "tt0137523",
+			origin_country: ["CN"],
+			credits: { cast: [{ id: 1, name: "张三", character: "(voice)" }] },
+		}),
+	};
+	await applyTmdbResponseRules(request, response, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+		storage,
+		fetcher: async req => {
+			if (req.url.includes("frodo.douban.com/api/v2/search/suggestion")) {
+				return { ok: true, status: 200, body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }) };
+			}
+			if (req.url.includes("frodo.douban.com/api/v2/movie/1292052/credits_stats")) {
+				return { ok: true, status: 200, body: JSON.stringify({ items: [] }) };
+			}
+			return { ok: false, status: 404, body: "{}" };
+		},
+	});
+	assert.equal(JSON.parse(response.body).credits.cast[0].character, "配音");
+});
+
+test("TMDB 角色名 (voice) 豆瓣仅有配音占位时替换为配音", async () => {
+	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
+	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits", headers: {} };
+	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	const response = {
+		status: 200,
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({
+			title: "Fight Club",
+			imdb_id: "tt0137523",
+			origin_country: ["CN"],
+			credits: { cast: [{ id: 1, name: "张三", character: "(voice)" }] },
+		}),
+	};
+	await applyTmdbResponseRules(request, response, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+		storage,
+		fetcher: async req => {
+			if (req.url.includes("frodo.douban.com/api/v2/search/suggestion")) {
+				return { ok: true, status: 200, body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }) };
+			}
+			if (req.url.includes("frodo.douban.com/api/v2/movie/1292052/credits_stats")) {
+				return { ok: true, status: 200, body: JSON.stringify({ items: [{ name: "张三", simple_character: "配音", category: "配音" }] }) };
+			}
+			return { ok: false, status: 404, body: "{}" };
+		},
+	});
+	assert.equal(JSON.parse(response.body).credits.cast[0].character, "配音");
+});
+
+test("TMDB 角色名 (voice) 豆瓣有真实角色名时优先使用豆瓣角色名", async () => {
+	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
+	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits", headers: {} };
+	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	const response = {
+		status: 200,
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({
+			title: "Fight Club",
+			imdb_id: "tt0137523",
+			origin_country: ["CN"],
+			credits: { cast: [{ id: 1, name: "张三", character: "(voice)" }] },
+		}),
+	};
+	await applyTmdbResponseRules(request, response, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+		storage,
+		fetcher: async req => {
+			if (req.url.includes("frodo.douban.com/api/v2/search/suggestion")) {
+				return { ok: true, status: 200, body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }) };
+			}
+			if (req.url.includes("frodo.douban.com/api/v2/movie/1292052/credits_stats")) {
+				return { ok: true, status: 200, body: JSON.stringify({ items: [{ name: "张三", simple_character: "配 孙悟空", category: "配音" }] }) };
+			}
+			return { ok: false, status: 404, body: "{}" };
+		},
+	});
+	assert.equal(JSON.parse(response.body).credits.cast[0].character, "孙悟空（配音）");
+});
+
+test("TMDB 角色名 (配音) 中文占位符替换为配音", async () => {
+	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
+	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits", headers: {} };
+	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	const response = {
+		status: 200,
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({
+			title: "Fight Club",
+			imdb_id: "tt0137523",
+			origin_country: ["CN"],
+			credits: { cast: [{ id: 1, name: "张三", character: "(配音)" }] },
+		}),
+	};
+	await applyTmdbResponseRules(request, response, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+		storage,
+		fetcher: async req => {
+			if (req.url.includes("frodo.douban.com/api/v2/search/suggestion")) {
+				return { ok: true, status: 200, body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }) };
+			}
+			if (req.url.includes("frodo.douban.com/api/v2/movie/1292052/credits_stats")) {
+				return { ok: true, status: 200, body: JSON.stringify({ items: [] }) };
+			}
+			return { ok: false, status: 404, body: "{}" };
+		},
+	});
+	assert.equal(JSON.parse(response.body).credits.cast[0].character, "配音");
+});
+
+test("TMDB 角色名 （voice） 全角括号匹配替换为配音", async () => {
+	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
+	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits", headers: {} };
+	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	const response = {
+		status: 200,
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({
+			title: "Fight Club",
+			imdb_id: "tt0137523",
+			origin_country: ["CN"],
+			credits: { cast: [{ id: 1, name: "张三", character: "（voice）" }] },
+		}),
+	};
+	await applyTmdbResponseRules(request, response, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+		storage,
+		fetcher: async req => {
+			if (req.url.includes("frodo.douban.com/api/v2/search/suggestion")) {
+				return { ok: true, status: 200, body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }) };
+			}
+			if (req.url.includes("frodo.douban.com/api/v2/movie/1292052/credits_stats")) {
+				return { ok: true, status: 200, body: JSON.stringify({ items: [] }) };
+			}
+			return { ok: false, status: 404, body: "{}" };
+		},
+	});
+	assert.equal(JSON.parse(response.body).credits.cast[0].character, "配音");
+});
+
+test("TMDB 角色名 秦牧 (voice) 无豆瓣匹配时替换为秦牧（配音）", async () => {
+	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
+	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits", headers: {} };
+	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	const response = {
+		status: 200,
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({
+			title: "Fight Club",
+			imdb_id: "tt0137523",
+			origin_country: ["CN"],
+			credits: { cast: [{ id: 1, name: "张三", character: "秦牧 (voice)" }] },
+		}),
+	};
+	await applyTmdbResponseRules(request, response, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+		storage,
+		fetcher: async req => {
+			if (req.url.includes("frodo.douban.com/api/v2/search/suggestion")) {
+				return { ok: true, status: 200, body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }) };
+			}
+			if (req.url.includes("frodo.douban.com/api/v2/movie/1292052/credits_stats")) {
+				return { ok: true, status: 200, body: JSON.stringify({ items: [] }) };
+			}
+			return { ok: false, status: 404, body: "{}" };
+		},
+	});
+	assert.equal(JSON.parse(response.body).credits.cast[0].character, "秦牧（配音）");
+});
+
+test("TMDB 角色名 秦牧 (voice) 豆瓣仅有配音占位时替换为秦牧（配音）", async () => {
+	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
+	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits", headers: {} };
+	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	const response = {
+		status: 200,
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({
+			title: "Fight Club",
+			imdb_id: "tt0137523",
+			origin_country: ["CN"],
+			credits: { cast: [{ id: 1, name: "张三", character: "秦牧 (voice)" }] },
+		}),
+	};
+	await applyTmdbResponseRules(request, response, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+		storage,
+		fetcher: async req => {
+			if (req.url.includes("frodo.douban.com/api/v2/search/suggestion")) {
+				return { ok: true, status: 200, body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }) };
+			}
+			if (req.url.includes("frodo.douban.com/api/v2/movie/1292052/credits_stats")) {
+				return { ok: true, status: 200, body: JSON.stringify({ items: [{ name: "张三", simple_character: "配音", category: "配音" }] }) };
+			}
+			return { ok: false, status: 404, body: "{}" };
+		},
+	});
+	assert.equal(JSON.parse(response.body).credits.cast[0].character, "秦牧（配音）");
+});
+
+test("TMDB 角色名 秦牧 (voice) 豆瓣有真实角色名时优先使用豆瓣角色名", async () => {
+	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
+	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits", headers: {} };
+	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	const response = {
+		status: 200,
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({
+			title: "Fight Club",
+			imdb_id: "tt0137523",
+			origin_country: ["CN"],
+			credits: { cast: [{ id: 1, name: "张三", character: "秦牧 (voice)" }] },
+		}),
+	};
+	await applyTmdbResponseRules(request, response, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+		storage,
+		fetcher: async req => {
+			if (req.url.includes("frodo.douban.com/api/v2/search/suggestion")) {
+				return { ok: true, status: 200, body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }) };
+			}
+			if (req.url.includes("frodo.douban.com/api/v2/movie/1292052/credits_stats")) {
+				return { ok: true, status: 200, body: JSON.stringify({ items: [{ name: "张三", simple_character: "配 孙悟空", category: "配音" }] }) };
+			}
+			return { ok: false, status: 404, body: "{}" };
+		},
+	});
+	assert.equal(JSON.parse(response.body).credits.cast[0].character, "孙悟空（配音）");
+});
+
+test("TMDB 角色名 龍貓 (voice) 繁体角色名转换为繁体配音后缀", async () => {
+	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
+	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-TW&append_to_response=credits", headers: {} };
+	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	const response = {
+		status: 200,
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({
+			title: "Fight Club",
+			imdb_id: "tt0137523",
+			origin_country: ["CN"],
+			credits: { cast: [{ id: 1, name: "张三", character: "龍貓 (voice)" }] },
+		}),
+	};
+	await applyTmdbResponseRules(request, response, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+		storage,
+		fetcher: async req => {
+			if (req.url.includes("frodo.douban.com/api/v2/search/suggestion")) {
+				return { ok: true, status: 200, body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }) };
+			}
+			if (req.url.includes("frodo.douban.com/api/v2/movie/1292052/credits_stats")) {
+				return { ok: true, status: 200, body: JSON.stringify({ items: [] }) };
+			}
+			return { ok: false, status: 404, body: "{}" };
+		},
+	});
+	assert.equal(JSON.parse(response.body).credits.cast[0].character, "龍貓（配音）");
+});
+
 test("豆瓣职位值不被当作角色名", async () => {
 	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
 	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits", headers: {} };

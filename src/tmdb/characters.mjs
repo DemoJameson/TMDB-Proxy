@@ -185,29 +185,63 @@ function normalizeDoubanCreditsKeys(doubanCredits) {
 	return normalized;
 }
 
+// 匹配结尾的 voice 占位符（如 "(voice)"、"秦牧 (voice)"、"（voice）"、"(配音)"、"（配音）"），支持半角/全角括号，先归一化为简体以支持简繁匹配。
+// Matches trailing voice placeholder (e.g. "(voice)"/"秦牧 (voice)"/"（voice）"/"(配音)"/"（配音）"); supports half/full-width parens; normalizes to Simplified Chinese first.
+const VOICE_MARKER_REGEX = /^(.*?)\s*[(（]\s*(voice|配音)\s*[)）]$/i;
+
+function isVoiceCharacter(character) {
+	const normalized = convertChinese(String(character ?? "").trim(), "zh-cn");
+	return VOICE_MARKER_REGEX.test(normalized);
+}
+
+// 提取 voice 占位符前的角色名（如 "秦牧 (voice)" → "秦牧"、"(voice)" → ""），先归一化为简体以支持简繁匹配。
+// Extracts character name before voice placeholder (e.g. "秦牧 (voice)" → "秦牧", "(voice)" → ""); normalizes to Simplified Chinese first.
+function extractVoiceCharacterName(character) {
+	const normalized = convertChinese(String(character ?? "").trim(), "zh-cn");
+	const match = normalized.match(VOICE_MARKER_REGEX);
+	return match ? match[1].trim() : "";
+}
+
 function applyCharacterTranslations(cast, doubanCredits, language) {
 	const normalizedCredits = normalizeDoubanCreditsKeys(doubanCredits);
+	const dubbedVoice = convertChinese("配音", language);
 	for (const item of cast) {
 		if (!item || typeof item !== "object") continue;
 		const currentCharacter = String(item.character ?? "").trim();
-		if (currentCharacter && hasHan(currentCharacter)) continue;
+		const isVoiceRole = isVoiceCharacter(currentCharacter);
+		// 配音占位符（如 "(voice)"）继续走豆瓣匹配真实角色名；非占位符且已有中文角色名时跳过。
+		// Voice placeholders (e.g. "(voice)") continue to douban for real character name; skip non-voice roles with existing Chinese character.
+		if (!isVoiceRole && currentCharacter && hasHan(currentCharacter)) continue;
 		const actorName = convertChinese(String(item.name ?? "").trim(), "zh-cn");
-		if (!actorName) continue;
-		const characters = normalizedCredits[actorName];
-		if (!Array.isArray(characters) || characters.length === 0) continue;
-		// 先在简体状态下过滤占位符（"演员"/"配音"），再做简繁转换，避免繁体占位符无法匹配。
-		// Filter placeholders in Simplified Chinese first, then convert to target language, to avoid繁体 placeholders not matching.
-		const realCharacters = characters.filter(character => !PLACEHOLDER_CHARACTERS.has(character));
-		const finalCharacters = realCharacters.length > 0 ? realCharacters : characters;
-		// 有现有角色名（如英文）时，占位符不覆盖
-		// Don't override existing character name (e.g. English) with placeholder
-		const isPlaceholderOnly = finalCharacters.every(character => PLACEHOLDER_CHARACTERS.has(character));
-		if (isPlaceholderOnly && currentCharacter) continue;
-		const translated = finalCharacters
-			.map(character => convertChinese(character, language))
-			.filter(character => character && hasHan(character));
-		if (translated.length === 0) continue;
-		item.character = translated.join(" / ");
+		const characters = actorName ? normalizedCredits[actorName] : null;
+		const hasCharacters = Array.isArray(characters) && characters.length > 0;
+		let finalCharacters = null;
+		if (hasCharacters) {
+			// 先在简体状态下过滤占位符（"演员"/"配音"），再做简繁转换，避免繁体占位符无法匹配。
+			// Filter placeholders in Simplified Chinese first, then convert to target language, to avoid繁体 placeholders not matching.
+			const realCharacters = characters.filter(character => !PLACEHOLDER_CHARACTERS.has(character));
+			finalCharacters = realCharacters.length > 0 ? realCharacters : characters;
+		}
+		if (finalCharacters) {
+			// 有现有角色名（如英文）时，占位符不覆盖
+			// Don't override existing character name (e.g. English) with placeholder
+			const isPlaceholderOnly = finalCharacters.every(character => PLACEHOLDER_CHARACTERS.has(character));
+			if (!isPlaceholderOnly || !currentCharacter) {
+				const translated = finalCharacters
+					.map(character => convertChinese(character, language))
+					.filter(character => character && hasHan(character));
+				if (translated.length > 0) {
+					item.character = translated.join(" / ");
+					continue;
+				}
+			}
+		}
+		// 豆瓣无匹配或仅有占位符时，将配音占位符替换为"配音"或"角色名（配音）"。
+		// When douban has no match or only placeholders, replace voice placeholder with "配音" or "CharacterName（配音）".
+		if (isVoiceRole) {
+			const voiceName = extractVoiceCharacterName(currentCharacter);
+			item.character = voiceName ? convertChinese(`${voiceName}（配音）`, language) : dubbedVoice;
+		}
 	}
 }
 
@@ -239,13 +273,18 @@ export async function applyCharacterTranslation(request, body, options = {}) {
 		if (doubanIds.length === 0) {
 			const ttl = hasChineseSource ? CACHE_TTL_MS : CACHE_NEGATIVE_TTL_MS;
 			await fireCacheWrite(cacheStore.set(route.mediaType, route.mediaId, entry, ttl, options.now), options.waitUntil);
+			// 无豆瓣 ID 时仍需替换配音占位符（如 "(voice)"）。
+			// Replace voice placeholders (e.g. "(voice)") even without douban IDs.
+			applyCharacterTranslations(credits.cast, {}, language);
 			return body;
 		}
 		const doubanCredits = await collectDoubanCredits(doubanIds, fetcher, entry);
 		const hasCharacters = Object.keys(doubanCredits).length > 0;
 		const ttl = hasCharacters && hasChineseSource ? CACHE_FULL_TTL_MS : hasCharacters || hasChineseSource ? CACHE_TTL_MS : CACHE_NEGATIVE_TTL_MS;
 		await fireCacheWrite(cacheStore.set(route.mediaType, route.mediaId, entry, ttl, options.now), options.waitUntil);
-		if (hasCharacters) applyCharacterTranslations(credits.cast, doubanCredits, language);
+		// 始终调用以处理配音占位符替换，即使豆瓣无角色名数据。
+		// Always call to handle voice placeholder replacement, even when douban has no character data.
+		applyCharacterTranslations(credits.cast, doubanCredits, language);
 	} catch (error) {
 		// 网络错误（请求未成功完成）不写入缓存，下次请求会重试。
 		// Network errors (request did not complete successfully) are not cached; next request will retry.
