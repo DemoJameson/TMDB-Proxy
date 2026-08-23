@@ -1,9 +1,9 @@
-import { convertChinese, hasHan } from "./aliases.mjs";
+import { buildSubRequestHeaders, convertChinese, hasHan } from "./aliases.mjs";
 import { fetchDoubanCreditsStats, fetchDoubanSeasons, mergeDoubanCredits, NetworkError, normalizeDoubanCreditsPayload, searchDoubanSubject } from "./douban.mjs";
 import { CACHE_FULL_TTL_MS, CACHE_NEGATIVE_TTL_MS, CACHE_TTL_MS } from "./cache.mjs";
 import { fireCacheWrite } from "./cache-store.mjs";
 import { buildExternalIdsUrl, buildMediaDetailUrl, getRequestLanguage, isChineseLanguage, isForwardHost, parseTmdbRoute } from "./routes.mjs";
-import { DEFAULT_TMDB_API_KEY, getTmdbApiKey, STATE_HEADER } from "./request-rules.mjs";
+import { getTmdbApiKey } from "./request-rules.mjs";
 
 // 中日韩制片地区（含港澳台）。
 // CJK production regions (including HK, MO, TW).
@@ -23,8 +23,7 @@ function createExternalIdsRequest(sourceRequest, mediaType, mediaId, apiKey) {
 	}
 	const url = buildExternalIdsUrl(sourceUrl, mediaType, mediaId);
 	if (!url.searchParams.get("api_key") && isForward) url.searchParams.set("api_key", apiKey);
-	const headers = Object.fromEntries(Object.entries(sourceRequest.headers ?? {}).filter(([key]) => key.toLowerCase() !== STATE_HEADER));
-	if (isForward) delete headers.authorization;
+	const headers = buildSubRequestHeaders(sourceRequest, isForward);
 	return { method: "GET", url: url.toString(), headers };
 }
 
@@ -39,8 +38,7 @@ function createMediaDetailRequest(sourceRequest, mediaType, mediaId, language, a
 	const url = buildMediaDetailUrl(sourceUrl, mediaType, mediaId);
 	if (language) url.searchParams.set("language", language);
 	if (!url.searchParams.get("api_key") && isForward) url.searchParams.set("api_key", apiKey);
-	const headers = Object.fromEntries(Object.entries(sourceRequest.headers ?? {}).filter(([key]) => key.toLowerCase() !== STATE_HEADER));
-	if (isForward) delete headers.authorization;
+	const headers = buildSubRequestHeaders(sourceRequest, isForward);
 	return { method: "GET", url: url.toString(), headers };
 }
 

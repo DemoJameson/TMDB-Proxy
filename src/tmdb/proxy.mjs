@@ -84,13 +84,14 @@ async function applyTmdbResponseRules(request, response, options = {}) {
 			now: options.now,
 			waitUntil: options.waitUntil,
 		});
-		body = await applyChineseAliasFallbackToList(request, body, {
-			aliasFallback: config.aliasFallback,
-			fetcher: options.fetcher ?? getDefaultFetcher(),
-			cacheStore,
-			now: options.now,
-			waitUntil: options.waitUntil,
-		});
+	body = await applyChineseAliasFallbackToList(request, body, {
+		aliasFallback: config.aliasFallback,
+		env: options.env,
+		fetcher: options.fetcher ?? getDefaultFetcher(),
+		cacheStore,
+		now: options.now,
+		waitUntil: options.waitUntil,
+	});
 		body = await applyCharacterTranslation(request, body, {
 			characterTranslation: config.characterTranslation,
 			fetcher: options.fetcher ?? getDefaultFetcher(),

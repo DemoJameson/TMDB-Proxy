@@ -8,6 +8,7 @@ import TWVariantsPhrases from "opencc-js/dict/TWVariantsPhrases";
 import { CACHE_NEGATIVE_TTL_MS, CACHE_TTL_MS } from "./cache.mjs";
 import { fireCacheWrite } from "./cache-store.mjs";
 import { extractFallbackInfoFromBody, extractOriginCountries } from "./characters.mjs";
+import { getTmdbApiKey, STATE_HEADER } from "./request-rules.mjs";
 import { buildMediaDetailUrl, getRequestLanguage, isChineseLanguage, isForwardHost, isTmdbCompatiblePath, parseTmdbRoute } from "./routes.mjs";
 
 const HAN_REGEX = /[\u3400-\u9fff]/;
@@ -194,7 +195,20 @@ function isTmdbListResponse(requestUrl, body, options = {}) {
 	return isTmdbCompatiblePath(url) && isChineseLanguage(getRequestLanguage(url));
 }
 
-function createListDetailRequest(sourceRequest, mediaType, mediaId, language) {
+// forwardinfo 专属请求头：鉴权（X-Signature/X-Timestamp）与 CDN 会话头对 TMDB 无效甚至有害（Host 会改写目标主机），子请求转发到 TMDB 前需移除（大小写不敏感）。
+// forwardinfo-specific headers: auth (X-Signature/X-Timestamp) and CDN session headers are invalid or harmful at TMDB (Host would rewrite the target); strip before forwarding sub-requests (case-insensitive).
+const FORWARD_ONLY_HEADER_NAMES = new Set(["authorization", "host", "cookie", "x-signature", "x-timestamp"]);
+
+function buildSubRequestHeaders(sourceRequest, isForward) {
+	return Object.fromEntries(
+		Object.entries(sourceRequest.headers ?? {}).filter(([key]) => {
+			const lower = key.toLowerCase();
+			return lower !== STATE_HEADER && !(isForward && FORWARD_ONLY_HEADER_NAMES.has(lower));
+		}),
+	);
+}
+
+function createListDetailRequest(sourceRequest, mediaType, mediaId, language, apiKey) {
 	const sourceUrl = new URL(sourceRequest.url);
 	const isForward = isForwardHost(sourceUrl.hostname);
 	if (isForward) {
@@ -205,14 +219,11 @@ function createListDetailRequest(sourceRequest, mediaType, mediaId, language) {
 	const url = buildMediaDetailUrl(sourceUrl, mediaType, mediaId);
 	url.searchParams.set("append_to_response", "alternative_titles,external_ids");
 	if (language && !url.searchParams.get("language")) url.searchParams.set("language", language);
-	const headers = Object.fromEntries(Object.entries(sourceRequest.headers ?? {}).filter(([key]) => key.toLowerCase() !== "x-tmdb-proxy-state"));
-	if (isForward) {
-		delete headers.authorization;
-	}
+	if (!url.searchParams.get("api_key")) url.searchParams.set("api_key", apiKey);
 	return {
 		method: "GET",
 		url: url.toString(),
-		headers,
+		headers: buildSubRequestHeaders(sourceRequest, isForward),
 	};
 }
 
@@ -231,6 +242,7 @@ async function applyChineseAliasFallbackToList(request, body, options = {}) {
 	if (!isTmdbListResponse(request.url, body, options)) return body;
 	const items = getListItemsForAliasFallback(request.url, body);
 	const language = getRequestLanguage(new URL(request.url));
+	const apiKey = getTmdbApiKey(options.env);
 	const fetcher = options.fetcher;
 	const cacheStore = options.cacheStore;
 	if (typeof fetcher !== "function" || !cacheStore) return body;
@@ -260,7 +272,7 @@ async function applyChineseAliasFallbackToList(request, body, options = {}) {
 			if (alias) item[titleField] = alias;
 			return;
 		}
-		const detailResponse = await fetcher(createListDetailRequest(request, mediaType, item.id, language)).catch(() => undefined);
+		const detailResponse = await fetcher(createListDetailRequest(request, mediaType, item.id, language, apiKey)).catch(() => undefined);
 		if (!detailResponse?.ok && !(detailResponse?.status >= 200 && detailResponse?.status < 300)) return;
 		try {
 			const detailBody = JSON.parse(detailResponse.body ?? "{}");
@@ -292,6 +304,7 @@ async function applyChineseAliasFallbackToList(request, body, options = {}) {
 export {
 	applyChineseAliasFallback,
 	applyChineseAliasFallbackToList,
+	buildSubRequestHeaders,
 	convertChinese,
 	createListDetailRequest,
 	extractRegionalAliases,

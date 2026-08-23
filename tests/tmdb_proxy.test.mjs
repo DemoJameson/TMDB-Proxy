@@ -918,8 +918,19 @@ test("Forward 中文请求 aliasFallback 关闭时不重定向", async () => {
 	assert.equal(result.$response, undefined);
 });
 
-test("Forward 中文搜索响应会按条目补全中文片名，fetcher 请求 TMDB 而非 forwardinfo", async () => {
-	const request = { method: "GET", url: "https://forwardinfo.vvebo.vip/search/movie?language=zh-CN&query=test", headers: { authorization: "Bearer signed-forward-token" } };
+test("Forward 中文搜索响应会按条目补全中文片名，fetcher 请求 TMDB 并自带 api_key", async () => {
+	const request = {
+		method: "GET",
+		url: "https://forwardinfo.vvebo.vip/search/movie?language=zh-CN&query=%E4%B8%BA%E5%85%A8%E4%BA%BA%E7%B1%BB",
+		headers: {
+			"X-Signature": "641b31f36429452a0a7e29b6007453deb022e4f3e49266c4421d3ec4315bd5f7",
+			"X-Timestamp": "1787506822",
+			Authorization: "Bearer signed-forward-token",
+			Cookie: "acw_tc=trace; cdn_sec_tc=trace",
+			Host: "forwardinfo.vvebo.vip",
+			"User-Agent": "Forward/1.3.18 Alamofire/5.10.2",
+		},
+	};
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -939,12 +950,42 @@ test("Forward 中文搜索响应会按条目补全中文片名，fetcher 请求 
 		},
 	});
 	assert.equal(fetched.length, 1);
-	assert.equal(fetched[0].url, "https://api.tmdb.org/3/movie/550?append_to_response=alternative_titles%2Cexternal_ids&language=zh-CN");
-	assert.equal(fetched[0].headers.authorization, undefined);
+	assert.equal(
+		fetched[0].url,
+		`https://api.tmdb.org/3/movie/550?append_to_response=alternative_titles%2Cexternal_ids&language=zh-CN&api_key=${DEFAULT_TMDB_API_KEY}`,
+	);
+	assert.equal(fetched[0].headers["X-Signature"], undefined);
+	assert.equal(fetched[0].headers["X-Timestamp"], undefined);
+	assert.equal(fetched[0].headers.Authorization, undefined);
+	assert.equal(fetched[0].headers.Cookie, undefined);
+	assert.equal(fetched[0].headers.Host, undefined);
+	assert.equal(fetched[0].headers["User-Agent"], "Forward/1.3.18 Alamofire/5.10.2");
 	assert.deepEqual(
 		JSON.parse(response.body).results.map(item => item.title),
 		["搏击俱乐部", "星球大战"],
 	);
+});
+
+test("Forward 中文搜索剧集响应同样按条目补全中文片名", async () => {
+	const request = { method: "GET", url: "https://forwardinfo.vvebo.vip/search/tv?language=zh-CN&query=%E4%B8%BA%E5%85%A8%E4%BA%BA%E7%B1%BB", headers: {} };
+	const response = {
+		status: 200,
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({
+			results: [{ id: 87917, name: "For All Mankind" }],
+		}),
+	};
+	const fetched = [];
+	await applyTmdbResponseRules(request, response, {
+		argument: { aliasFallback: true },
+		fetcher: async aliasRequest => {
+			fetched.push(aliasRequest);
+			return { ok: true, status: 200, body: JSON.stringify({ alternative_titles: { results: [{ iso_3166_1: "CN", title: "为全人类" }] } }) };
+		},
+	});
+	assert.equal(fetched.length, 1);
+	assert.equal(fetched[0].url, `https://api.tmdb.org/3/tv/87917?append_to_response=alternative_titles%2Cexternal_ids&language=zh-CN&api_key=${DEFAULT_TMDB_API_KEY}`);
+	assert.equal(JSON.parse(response.body).results[0].name, "为全人类");
 });
 
 test("电影详情 append credits 时使用豆瓣数据汉化角色名", async () => {
