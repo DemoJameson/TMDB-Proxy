@@ -147,3 +147,6 @@ js/
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vercel
+
+# Test output
+test-output.txt

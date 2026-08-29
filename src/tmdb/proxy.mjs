@@ -4,7 +4,8 @@ import { applyCharacterTranslation } from "./characters.mjs";
 import { BlobCacheStore, RemoteCacheStore, TieredCacheStore } from "./cache-store.mjs";
 import { resolveProxyConfig } from "./config.mjs";
 import { normalizeAggregateCredits } from "./credits.mjs";
-import { applyTmdbRequestRules, DEFAULT_TMDB_API_KEY, encodeState, fetchTmdbWithNativeFetch, STATE_HEADER } from "./request-rules.mjs";
+import { deleteHeader, readHeader, setHeader, STATE_HEADER } from "./headers.mjs";
+import { applyTmdbRequestRules, DEFAULT_TMDB_API_KEY, encodeState, fetchTmdbWithNativeFetch } from "./request-rules.mjs";
 
 function getDefaultFetcher() {
 	return globalThis.$task || globalThis.$httpClient ? utilFetch : fetchTmdbWithNativeFetch;
@@ -23,27 +24,9 @@ function decodeState(value) {
 	if (!value) return {};
 	try {
 		return JSON.parse(decodeURIComponent(String(value)));
-	} catch {
+	} catch (error) {
+		console.warn("[tmdb-proxy] 代理状态头解析失败", error?.message ?? error);
 		return {};
-	}
-}
-
-function setHeader(headers, key, value) {
-	headers[key] = value;
-}
-
-function readHeader(headers, key) {
-	const lower = key.toLowerCase();
-	for (const [name, value] of Object.entries(headers ?? {})) {
-		if (name.toLowerCase() === lower) return Array.isArray(value) ? value[0] : value;
-	}
-	return undefined;
-}
-
-function deleteHeader(headers, key) {
-	const lower = key.toLowerCase();
-	for (const name of Object.keys(headers ?? {})) {
-		if (name.toLowerCase() === lower) headers[name] = undefined;
 	}
 }
 
@@ -84,14 +67,14 @@ async function applyTmdbResponseRules(request, response, options = {}) {
 			now: options.now,
 			waitUntil: options.waitUntil,
 		});
-	body = await applyChineseAliasFallbackToList(request, body, {
-		aliasFallback: config.aliasFallback,
-		env: options.env,
-		fetcher: options.fetcher ?? getDefaultFetcher(),
-		cacheStore,
-		now: options.now,
-		waitUntil: options.waitUntil,
-	});
+		body = await applyChineseAliasFallbackToList(request, body, {
+			aliasFallback: config.aliasFallback,
+			env: options.env,
+			fetcher: options.fetcher ?? getDefaultFetcher(),
+			cacheStore,
+			now: options.now,
+			waitUntil: options.waitUntil,
+		});
 		body = await applyCharacterTranslation(request, body, {
 			characterTranslation: config.characterTranslation,
 			fetcher: options.fetcher ?? getDefaultFetcher(),

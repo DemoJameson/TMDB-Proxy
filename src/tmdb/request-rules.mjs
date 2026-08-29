@@ -1,7 +1,7 @@
 import { resolveProxyConfig } from "./config.mjs";
-import { appendToResponse, getRequestLanguage, isChineseLanguage, isForwardHost, isTmdbCompatiblePath, isTmdbImageHost, parseTmdbRoute, rewriteAppendToResponse, rewriteToTvAggregateCredits, rewriteToTvSeasonAggregateCredits } from "./routes.mjs";
+import { STATE_HEADER, setHeader } from "./headers.mjs";
+import { appendToResponse, getRequestLanguage, isChineseLanguage, isForwardHost, isTmdbCompatiblePath, isTmdbImageHost, parseTmdbRoute, rewriteAppendToResponse, rewriteForwardToTmdbUrl, rewriteToTvAggregateCredits, rewriteToTvSeasonAggregateCredits } from "./routes.mjs";
 
-const STATE_HEADER = "x-tmdb-proxy-state";
 const DEFAULT_TMDB_API_KEY = "ebb2c093078553178d5d75c6d86d7bde";
 
 // 获取 TMDB API Key：优先环境变量 TMDB_API_KEY，回退到硬编码默认值。
@@ -9,15 +9,6 @@ const DEFAULT_TMDB_API_KEY = "ebb2c093078553178d5d75c6d86d7bde";
 function getTmdbApiKey(env) {
 	const envKey = env?.TMDB_API_KEY ?? globalThis.process?.env?.TMDB_API_KEY;
 	return typeof envKey === "string" && envKey ? envKey : DEFAULT_TMDB_API_KEY;
-}
-
-function setRequestHeader(request, name, value) {
-	request.headers ??= {};
-	const lower = name.toLowerCase();
-	for (const key of Object.keys(request.headers)) {
-		if (key.toLowerCase() === lower) delete request.headers[key];
-	}
-	request.headers[name] = value;
 }
 
 function encodeState(state) {
@@ -56,8 +47,7 @@ async function applyTmdbRequestRules(request, options = {}) {
 	if (isTmdbCompatiblePath(url) && !url.searchParams.get("api_key") && !hasAuthorization) url.searchParams.set("api_key", apiKey);
 	if (isForwardHost(url.hostname)) {
 		const tmdbUrl = new URL(url.toString());
-		tmdbUrl.host = "api.tmdb.org";
-		tmdbUrl.pathname = "/3" + url.pathname;
+		rewriteForwardToTmdbUrl(tmdbUrl, { keepSearch: true });
 		const forwardRoute = parseTmdbRoute(tmdbUrl);
 		let needsRedirect = false;
 		if (forwardRoute?.isDetail && isChineseLanguage(getRequestLanguage(url)) && (config.aliasFallback || (config.characterTranslation && !forwardRoute.isCollectionDetail))) needsRedirect = true;
@@ -81,7 +71,8 @@ async function applyTmdbRequestRules(request, options = {}) {
 	}
 	if (!route) {
 		if (config.imageWebp && isTmdbImageHost(url.hostname)) {
-			setRequestHeader(request, "Accept", "image/webp,*/*");
+			request.headers ??= {};
+			setHeader(request.headers, "Accept", "image/webp,*/*");
 		}
 		request.url = url.toString();
 		return { $request: request, state, config };

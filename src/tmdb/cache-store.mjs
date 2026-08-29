@@ -1,5 +1,11 @@
 import { getCacheEntry, isValidEntry, readCache, updateCacheEntry, writeCache } from "./cache.mjs";
 
+// 缓存操作失败仅记录警告，不影响主流程。
+// Cache failures are logged as warnings only; the main flow is unaffected.
+function warnCacheError(operation, error) {
+	console.warn(`[tmdb-proxy] 缓存${operation}失败`, error?.message ?? error);
+}
+
 // 抽象基类，统一缓存读写操作接口。
 // Abstract base class providing a unified cache read/write interface.
 class CacheStore {
@@ -78,7 +84,8 @@ class RemoteCacheStore extends CacheStore {
 			});
 			if (!response?.ok && !(response?.status >= 200 && response?.status < 300)) return null;
 			return JSON.parse(response.body ?? "{}");
-		} catch {
+		} catch (error) {
+			warnCacheError("远端读写", error);
 			return null;
 		}
 	}
@@ -137,7 +144,7 @@ class TieredCacheStore extends CacheStore {
 		if (remote) {
 			// 3. 远端命中，回写本地（fire-and-forget）
 			// 3. Remote hit, writeback to local (fire-and-forget)
-			this.local.set(mediaType, id, remote, remote.expiresAt - remote.createdAt, now).catch(() => {});
+			this.local.set(mediaType, id, remote, remote.expiresAt - remote.createdAt, now).catch(error => warnCacheError("本地回写", error));
 		}
 		return remote;
 	}
@@ -157,7 +164,7 @@ class TieredCacheStore extends CacheStore {
 		for (const [id, entry] of remoteEntries) {
 			writeback.push({ mediaType, id, data: entry, ttlMs: entry.expiresAt - entry.createdAt });
 		}
-		if (writeback.length > 0) this.local.setMany(writeback, now).catch(() => {});
+		if (writeback.length > 0) this.local.setMany(writeback, now).catch(error => warnCacheError("本地回写", error));
 		// 4. 合并结果
 		// 4. Merge results
 		const result = new Map(localEntries);
@@ -169,21 +176,21 @@ class TieredCacheStore extends CacheStore {
 		// 本地先写（await），远端 fire-and-forget
 		// Local write awaited, remote write fire-and-forget
 		await this.local.set(mediaType, id, data, ttlMs, now);
-		this.remote.set(mediaType, id, data, ttlMs, now).catch(() => {});
+		this.remote.set(mediaType, id, data, ttlMs, now).catch(error => warnCacheError("远端写入", error));
 	}
 
 	async setMany(entries, now) {
 		// 本地先批量写（await），远端 fire-and-forget
 		// Local batch write awaited, remote write fire-and-forget
 		await this.local.setMany(entries, now);
-		this.remote.setMany(entries, now).catch(() => {});
+		this.remote.setMany(entries, now).catch(error => warnCacheError("远端写入", error));
 	}
 
 	async merge(mediaType, id, partialData, ttlMs, now) {
 		// 本地合并（await），远端合并 fire-and-forget
 		// Local merge awaited, remote merge fire-and-forget
 		await this.local.merge(mediaType, id, partialData, ttlMs, now);
-		this.remote.merge(mediaType, id, partialData, ttlMs, now).catch(() => {});
+		this.remote.merge(mediaType, id, partialData, ttlMs, now).catch(error => warnCacheError("远端写入", error));
 	}
 
 	// 判断条目是否已包含所有需要的字段（字段值非 undefined）。
@@ -211,7 +218,7 @@ class TieredCacheStore extends CacheStore {
 		// 合并：本地保留，远端填充
 		// Merge: keep local, fill from remote
 		const { merged, ttlMs } = TieredCacheStore._mergeEntries(local, remote);
-		this.local.set(mediaType, id, merged, ttlMs, now).catch(() => {});
+		this.local.set(mediaType, id, merged, ttlMs, now).catch(error => warnCacheError("本地回写", error));
 		return merged;
 	}
 
@@ -232,7 +239,7 @@ class TieredCacheStore extends CacheStore {
 			writeback.push({ mediaType, id, data: merged, ttlMs });
 			result.set(String(id), merged);
 		}
-		if (writeback.length > 0) this.local.setMany(writeback, now).catch(() => {});
+		if (writeback.length > 0) this.local.setMany(writeback, now).catch(error => warnCacheError("本地回写", error));
 		return result;
 	}
 }
@@ -243,15 +250,15 @@ function isScriptRuntime() {
 	return typeof $done !== "undefined" || typeof $response !== "undefined";
 }
 
-// 将缓存写入包装为 fire-and-forget：错误静默吞掉，并在 Workers 上通过 waitUntil 保活。
+// 将缓存写入包装为 fire-and-forget：错误仅记录警告，并在 Workers 上通过 waitUntil 保活。
 // 脚本运行时无 waitUntil 时，等待写入完成（最多 2 秒），避免宿主终止脚本导致请求丢失。
 // 反代服务器（Vercel/Node.js）是长期运行的进程，不需要等待，fire-and-forget 会自然完成。
-// Wraps a cache write as fire-and-forget: swallows errors, uses waitUntil on Workers.
+// Wraps a cache write as fire-and-forget: errors are logged as warnings, uses waitUntil on Workers.
 // On script runtime (no waitUntil, detected via $done/$response globals), awaits the write (max 2s) to ensure it completes.
 // On server runtime (Vercel/Node.js), returns immediately — the process stays alive and writes complete naturally.
 async function fireCacheWrite(promise, waitUntil) {
 	if (!promise) return;
-	const handled = promise.catch(() => {});
+	const handled = promise.catch(error => warnCacheError("写入", error));
 	if (typeof waitUntil === "function") {
 		waitUntil(handled);
 	} else if (isScriptRuntime()) {

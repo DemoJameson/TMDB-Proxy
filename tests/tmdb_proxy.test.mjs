@@ -493,7 +493,7 @@ test("返回 results 的电影列表也会按条目补全中文片名", async ()
 		},
 	});
 	assert.equal(fetched.length, 1);
-	assert.equal(fetched[0].url, "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=alternative_titles%2Cexternal_ids");
+	assert.equal(fetched[0].url, `https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=alternative_titles%2Cexternal_ids&api_key=${DEFAULT_TMDB_API_KEY}`);
 	assert.equal(fetched[0].headers.Authorization, "Bearer token");
 	assert.equal(fetched[0].headers[STATE_HEADER], undefined);
 	assert.deepEqual(
@@ -550,7 +550,7 @@ test("混合搜索中的 person 条目不会按 tv name 误补全", async () => 
 	const body = JSON.parse(response.body);
 	assert.equal(body.results[0].name, "Brad Pitt");
 	assert.equal(body.results[1].name, "权力的游戏");
-	assert.deepEqual(fetched, ["https://api.themoviedb.org/3/tv/1399?language=zh-CN&query=test&append_to_response=alternative_titles%2Cexternal_ids"]);
+	assert.deepEqual(fetched, [`https://api.themoviedb.org/3/tv/1399?language=zh-CN&query=test&append_to_response=alternative_titles%2Cexternal_ids&api_key=${DEFAULT_TMDB_API_KEY}`]);
 });
 
 test("非中文列表请求不会为条目额外请求别名", async () => {

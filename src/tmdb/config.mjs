@@ -18,7 +18,8 @@ function readBoxJsConfig() {
 	try {
 		const stored = Storage.getItem(BOXJS_CONFIG_KEY, {});
 		return stored && typeof stored === "object" ? stored : {};
-	} catch {
+	} catch (error) {
+		console.warn("[tmdb-proxy] BoxJs 配置读取失败", error?.message ?? error);
 		return {};
 	}
 }

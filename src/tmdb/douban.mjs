@@ -59,7 +59,8 @@ async function fetchDoubanJson(url, fetcher) {
 	if (!response.ok && !(response.status >= 200 && response.status < 300)) return null;
 	try {
 		return JSON.parse(response.body ?? "{}");
-	} catch {
+	} catch (error) {
+		console.warn(`[tmdb-proxy] 豆瓣响应 JSON 解析失败: ${url}`, error?.message ?? error);
 		return null;
 	}
 }

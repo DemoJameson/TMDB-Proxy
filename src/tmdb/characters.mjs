@@ -1,8 +1,9 @@
-import { buildSubRequestHeaders, convertChinese, hasHan } from "./aliases.mjs";
+import { convertChinese, extractFallbackInfoFromBody, extractOriginCountries, hasHan } from "./aliases.mjs";
 import { fetchDoubanCreditsStats, fetchDoubanSeasons, mergeDoubanCredits, NetworkError, normalizeDoubanCreditsPayload, searchDoubanSubject } from "./douban.mjs";
 import { CACHE_FULL_TTL_MS, CACHE_NEGATIVE_TTL_MS, CACHE_TTL_MS } from "./cache.mjs";
 import { fireCacheWrite } from "./cache-store.mjs";
-import { buildExternalIdsUrl, buildMediaDetailUrl, getRequestLanguage, isChineseLanguage, isForwardHost, parseTmdbRoute } from "./routes.mjs";
+import { buildSubRequestHeaders } from "./headers.mjs";
+import { buildExternalIdsUrl, buildMediaDetailUrl, getRequestLanguage, isChineseLanguage, parseTmdbRoute, rewriteForwardToTmdbUrl } from "./routes.mjs";
 import { getTmdbApiKey } from "./request-rules.mjs";
 
 // 中日韩制片地区（含港澳台）。
@@ -15,12 +16,7 @@ function isCjkProduction(originCountries) {
 
 function createExternalIdsRequest(sourceRequest, mediaType, mediaId, apiKey) {
 	const sourceUrl = new URL(sourceRequest.url);
-	const isForward = isForwardHost(sourceUrl.hostname);
-	if (isForward) {
-		sourceUrl.host = "api.tmdb.org";
-		sourceUrl.pathname = `/3${sourceUrl.pathname}`;
-		sourceUrl.search = "";
-	}
+	const isForward = rewriteForwardToTmdbUrl(sourceUrl);
 	const url = buildExternalIdsUrl(sourceUrl, mediaType, mediaId);
 	if (!url.searchParams.get("api_key") && isForward) url.searchParams.set("api_key", apiKey);
 	const headers = buildSubRequestHeaders(sourceRequest, isForward);
@@ -29,12 +25,7 @@ function createExternalIdsRequest(sourceRequest, mediaType, mediaId, apiKey) {
 
 function createMediaDetailRequest(sourceRequest, mediaType, mediaId, language, apiKey) {
 	const sourceUrl = new URL(sourceRequest.url);
-	const isForward = isForwardHost(sourceUrl.hostname);
-	if (isForward) {
-		sourceUrl.host = "api.tmdb.org";
-		sourceUrl.pathname = `/3${sourceUrl.pathname}`;
-		sourceUrl.search = "";
-	}
+	const isForward = rewriteForwardToTmdbUrl(sourceUrl);
 	const url = buildMediaDetailUrl(sourceUrl, mediaType, mediaId);
 	if (language) url.searchParams.set("language", language);
 	if (!url.searchParams.get("api_key") && isForward) url.searchParams.set("api_key", apiKey);
@@ -56,7 +47,8 @@ async function fetchJsonOrThrow(request, fetcher) {
 	if (!response.ok && !(response.status >= 200 && response.status < 300)) return null;
 	try {
 		return JSON.parse(response.body ?? "{}");
-	} catch {
+	} catch (error) {
+		console.warn(`[tmdb-proxy] TMDB 响应 JSON 解析失败: ${request.url}`, error?.message ?? error);
 		return null;
 	}
 }
@@ -72,27 +64,6 @@ async function resolveImdbId(route, body, request, fetcher, entry, apiKey) {
 	const imdbId = String(payload?.imdb_id ?? "").trim();
 	entry.imdbId = imdbId;
 	return imdbId || null;
-}
-
-export function extractFallbackInfoFromBody(body, mediaType) {
-	const titleField = mediaType === "movie" ? "title" : "name";
-	const dateField = mediaType === "movie" ? "release_date" : "first_air_date";
-	const title = String(body?.[titleField] ?? "").trim();
-	if (!title) return { title: "", year: "" };
-	const date = String(body?.[dateField] ?? "").trim();
-	const year = date.length >= 4 && /^\d{4}/.test(date) ? date.substring(0, 4) : "";
-	return { title, year };
-}
-
-// 从响应体提取制片地区（origin_country 优先，回退到 production_countries）。
-// Extracts production countries from body (origin_country first, then production_countries).
-export function extractOriginCountries(body) {
-	const countries = Array.isArray(body?.origin_country) ? body.origin_country : [];
-	if (countries.length > 0) return countries.map(c => String(c ?? "").trim().toUpperCase()).filter(Boolean);
-	if (Array.isArray(body?.production_countries)) {
-		return body.production_countries.map(c => String(c?.iso_3166_1 ?? "").trim().toUpperCase()).filter(Boolean);
-	}
-	return [];
 }
 
 async function resolveFallbackInfo(route, body, request, fetcher, entry, apiKey) {

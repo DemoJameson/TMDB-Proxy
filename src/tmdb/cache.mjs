@@ -56,7 +56,8 @@ function normalizeCache(value) {
 function readCache(storage) {
 	try {
 		return normalizeCache(storage?.getItem?.(CACHE_KEY, createEmptyCache()));
-	} catch {
+	} catch (error) {
+		console.warn("[tmdb-proxy] 本地缓存读取失败", error?.message ?? error);
 		return createEmptyCache();
 	}
 }
@@ -97,7 +98,8 @@ function writeCache(storage, cache, now = Date.now()) {
 	pruneCache(cache, now);
 	try {
 		return Boolean(storage?.setItem?.(CACHE_KEY, cache));
-	} catch {
+	} catch (error) {
+		console.warn("[tmdb-proxy] 本地缓存写入失败", error?.message ?? error);
 		return false;
 	}
 }

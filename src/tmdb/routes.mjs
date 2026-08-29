@@ -51,6 +51,18 @@ function isTmdbCompatiblePath(input) {
 	return isTmdbHost(url.hostname) && url.pathname.split("/").filter(Boolean)[0] === "3";
 }
 
+// 将 forwardinfo 请求 URL 原地改写为 TMDB API URL（替换主机并补 /3 前缀）；keepSearch 为 false 时清空查询参数。
+// 返回 URL 是否来自 forward 主机。
+// Rewrites a forwardinfo request URL in place to a TMDB API URL (swap host and add /3 prefix); clears the query unless keepSearch is true.
+// Returns whether the URL came from a forward host.
+function rewriteForwardToTmdbUrl(url, { keepSearch = false } = {}) {
+	if (!isForwardHost(url.hostname)) return false;
+	url.host = "api.tmdb.org";
+	url.pathname = `/3${url.pathname}`;
+	if (!keepSearch) url.search = "";
+	return true;
+}
+
 function isChineseLanguage(language) {
 	return ["zh", "zh-cn", "zh-sg", "zh-tw", "zh-hk"].includes(String(language ?? "").toLowerCase());
 }
@@ -131,4 +143,4 @@ function buildMediaDetailUrl(sourceUrl, mediaType, mediaId) {
 	return url;
 }
 
-export { appendToResponse, buildAlternativeTitlesUrl, buildExternalIdsUrl, buildMediaDetailUrl, buildTvDetailUrl, FORWARD_HOSTS, getRequestLanguage, isChineseLanguage, isForwardHost, isTmdbCompatiblePath, isTmdbHost, isTmdbImageHost, parseTmdbRoute, rewriteAppendToResponse, rewriteToTvAggregateCredits, rewriteToTvSeasonAggregateCredits, TMDB_HOSTS, TMDB_IMAGE_HOSTS };
+export { appendToResponse, buildAlternativeTitlesUrl, buildExternalIdsUrl, buildMediaDetailUrl, buildTvDetailUrl, FORWARD_HOSTS, getRequestLanguage, isChineseLanguage, isForwardHost, isTmdbCompatiblePath, isTmdbHost, isTmdbImageHost, parseTmdbRoute, rewriteAppendToResponse, rewriteForwardToTmdbUrl, rewriteToTvAggregateCredits, rewriteToTvSeasonAggregateCredits, TMDB_HOSTS, TMDB_IMAGE_HOSTS };
