@@ -64,7 +64,8 @@ function rewriteForwardToTmdbUrl(url, { keepSearch = false } = {}) {
 }
 
 function isChineseLanguage(language) {
-	return ["zh", "zh-cn", "zh-sg", "zh-tw", "zh-hk"].includes(String(language ?? "").toLowerCase());
+	const normalized = String(language ?? "").toLowerCase();
+	return normalized === "zh" || normalized.startsWith("zh-");
 }
 
 function getRequestLanguage(url) {

@@ -568,6 +568,35 @@ test("非中文列表请求不会为条目额外请求别名", async () => {
 	assert.equal(JSON.parse(response.body).results[0].title, "Fight Club");
 });
 
+test("recommendations 列表使用 zh-Hans-CN 也会补全中文片名（script+region 语言码修复）", async () => {
+	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/969681/recommendations?api_key=client-key&language=zh-Hans-CN", headers: {} };
+	const response = {
+		status: 200,
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({
+			page: 1,
+			results: [
+				{ adult: false, id: 634649, title: "Spider-Man: No Way Home" },
+				{ adult: false, id: 11, title: "星球大战" },
+			],
+		}),
+	};
+	const fetched = [];
+	await applyTmdbResponseRules(request, response, {
+		argument: { aliasFallback: true },
+		fetcher: async aliasRequest => {
+			fetched.push(aliasRequest.url);
+			return { ok: true, status: 200, body: JSON.stringify({ alternative_titles: { titles: [{ iso_3166_1: "CN", title: "蜘蛛侠：英雄无归" }] } }) };
+		},
+	});
+	assert.equal(fetched.length, 1);
+	assert.equal(fetched[0], `https://api.themoviedb.org/3/movie/634649?api_key=client-key&language=zh-Hans-CN&append_to_response=alternative_titles%2Cexternal_ids`);
+	assert.deepEqual(
+		JSON.parse(response.body).results.map(item => item.title),
+		["蜘蛛侠：英雄无归", "星球大战"],
+	);
+});
+
 test("列表中文补全默认允许 10 个别名请求并发", async () => {
 	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/popular?language=zh-CN", headers: {} };
 	const response = {

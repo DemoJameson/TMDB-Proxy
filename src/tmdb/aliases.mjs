@@ -18,6 +18,10 @@ const LANGUAGE_REGIONS = {
 	"zh-sg": ["SG", "CN", "TW", "HK"],
 	"zh-tw": ["TW", "HK", "CN", "SG"],
 	"zh-hk": ["HK", "TW", "CN", "SG"],
+	"zh-hans-cn": ["CN", "SG", "TW", "HK"],
+	"zh-hans-sg": ["SG", "CN", "TW", "HK"],
+	"zh-hant-tw": ["TW", "HK", "CN", "SG"],
+	"zh-hant-hk": ["HK", "TW", "CN", "SG"],
 };
 
 const converters = {
@@ -40,8 +44,8 @@ function getPreferredRegions(language) {
 
 function getConverterTarget(language) {
 	const normalized = normalizeLanguage(language);
-	if (normalized === "zh-tw") return "tw";
-	if (normalized === "zh-hk") return "hk";
+	if (normalized === "zh-tw" || normalized === "zh-hant-tw") return "tw";
+	if (normalized === "zh-hk" || normalized === "zh-hant-hk") return "hk";
 	return "cn";
 }
 
