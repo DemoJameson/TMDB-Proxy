@@ -4,6 +4,7 @@ import { applyCharacterTranslation } from "./characters.mjs";
 import { BlobCacheStore, RemoteCacheStore, TieredCacheStore } from "./cache-store.mjs";
 import { resolveProxyConfig } from "./config.mjs";
 import { normalizeAggregateCredits } from "./credits.mjs";
+import { applyGenreTranslation } from "./genres.mjs";
 import { deleteHeader, readHeader, setHeader, STATE_HEADER } from "./headers.mjs";
 import { applyTmdbRequestRules, DEFAULT_TMDB_API_KEY, encodeState, fetchTmdbWithNativeFetch } from "./request-rules.mjs";
 
@@ -83,6 +84,10 @@ async function applyTmdbResponseRules(request, response, options = {}) {
 			waitUntil: options.waitUntil,
 			env: options.env,
 		});
+		// TMDB 部分类型（如 TV 科幻奇幻/战争政治）无中文翻译时返回英文，按请求语言兜底为中文。
+		// Some TMDB genres (e.g. TV Sci-Fi & Fantasy / War & Politics) have no Chinese translation and
+		// are returned in English; localize them to Chinese based on the request language.
+		body = applyGenreTranslation(request, body);
 		// 将汉化结果写回 aggregate_credits 的 roles，删除临时生成的 credits。
 		// Write translated characters back to aggregate_credits roles, remove temporary credits.
 		if (generatedCreditsFromAggregate) {

@@ -9,9 +9,8 @@ import { CACHE_NEGATIVE_TTL_MS, CACHE_TTL_MS } from "./cache.mjs";
 import { fireCacheWrite } from "./cache-store.mjs";
 import { buildSubRequestHeaders } from "./headers.mjs";
 import { getTmdbApiKey } from "./request-rules.mjs";
-import { buildMediaDetailUrl, getRequestLanguage, isChineseLanguage, isForwardHost, isTmdbCompatiblePath, parseTmdbRoute, rewriteForwardToTmdbUrl } from "./routes.mjs";
+import { buildMediaDetailUrl, getRequestLanguage, hasHan, isChineseLanguage, isForwardHost, isTmdbCompatiblePath, parseTmdbRoute, rewriteForwardToTmdbUrl } from "./routes.mjs";
 
-const HAN_REGEX = /[\u3400-\u9fff]/;
 const LANGUAGE_REGIONS = {
 	zh: ["CN", "SG", "TW", "HK"],
 	"zh-cn": ["CN", "SG", "TW", "HK"],
@@ -29,10 +28,6 @@ const converters = {
 	tw: ConverterFactory([STCharacters], [TWVariantsPhrases, TWVariants]),
 	hk: ConverterFactory([STCharacters], [HKVariantsPhrases, HKVariants]),
 };
-
-function hasHan(value) {
-	return HAN_REGEX.test(String(value ?? ""));
-}
 
 function normalizeLanguage(language) {
 	return String(language || "zh").toLowerCase();
@@ -323,7 +318,6 @@ export {
 	createListDetailRequest,
 	extractRegionalAliases,
 	getPreferredRegions,
-	hasHan,
 	inferListItemMediaType,
 	pickChineseAlias,
 	pickChineseAliasFromRegions,

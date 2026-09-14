@@ -1,9 +1,9 @@
-import { convertChinese, extractFallbackInfoFromBody, extractOriginCountries, hasHan } from "./aliases.mjs";
+import { convertChinese, extractFallbackInfoFromBody, extractOriginCountries } from "./aliases.mjs";
 import { fetchDoubanCreditsStats, fetchDoubanSeasons, mergeDoubanCredits, NetworkError, normalizeDoubanCreditsPayload, searchDoubanSubject } from "./douban.mjs";
 import { CACHE_FULL_TTL_MS, CACHE_NEGATIVE_TTL_MS, CACHE_TTL_MS } from "./cache.mjs";
 import { fireCacheWrite } from "./cache-store.mjs";
 import { buildSubRequestHeaders } from "./headers.mjs";
-import { buildExternalIdsUrl, buildMediaDetailUrl, getRequestLanguage, isChineseLanguage, parseTmdbRoute, rewriteForwardToTmdbUrl } from "./routes.mjs";
+import { buildExternalIdsUrl, buildMediaDetailUrl, getRequestLanguage, hasHan, isChineseLanguage, parseTmdbRoute, rewriteForwardToTmdbUrl } from "./routes.mjs";
 import { getTmdbApiKey } from "./request-rules.mjs";
 
 // 中日韩制片地区（含港澳台）。

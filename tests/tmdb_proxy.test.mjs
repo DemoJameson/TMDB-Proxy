@@ -4,6 +4,7 @@ import app from "../src/Hono.js";
 import { pickChineseAlias } from "../src/tmdb/aliases.mjs";
 import { CACHE_MAX_BYTES, CACHE_NEGATIVE_TTL_MS, CACHE_FULL_TTL_MS, CACHE_TTL_MS, createEmptyCache, normalizeCache, setCacheEntry, writeCache } from "../src/tmdb/cache.mjs";
 import { parseRuntimeArgument, resolveProxyConfig } from "../src/tmdb/config.mjs";
+import { GENRE_NAMES } from "../src/tmdb/genres.mjs";
 import { applyTmdbRequestRules, applyTmdbResponseRules, DEFAULT_TMDB_API_KEY, fetchTmdbWithNativeFetch, STATE_HEADER } from "../src/tmdb/proxy.mjs";
 import { isForwardHost, isTmdbHost, isTmdbImageHost } from "../src/tmdb/routes.mjs";
 
@@ -2377,4 +2378,168 @@ test("fallback 搜索命中后缓存 doubanId 供后续请求复用", async () =
 	});
 	const entry = storage.store.dj_tmdb_proxy_cache.stores.tv["123456"];
 	assert.equal(entry.doubanId, "1234567");
+});
+
+test("zh-CN 详情中仅补全 TMDB 未翻译的 10765/10768", async () => {
+	const request = { method: "GET", url: "https://api.themoviedb.org/3/tv/1399?language=zh-CN", headers: {} };
+	const response = {
+		status: 200,
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({
+			name: "测试剧集",
+			genres: [
+				{ id: 16, name: "动画" },
+				{ id: 35, name: "喜剧" },
+				{ id: 10765, name: "Sci-Fi & Fantasy" },
+				{ id: 10759, name: "动作冒险" },
+				{ id: 10768, name: "War & Politics" },
+			],
+		}),
+	};
+	await applyTmdbResponseRules(request, response, { argument: { aliasFallback: false, characterTranslation: false, aggregateCredits: false } });
+	assert.deepEqual(
+		JSON.parse(response.body).genres.map(genre => genre.name),
+		["动画", "喜剧", "科幻奇幻", "动作冒险", "战争政治"],
+	);
+});
+
+test("zh-TW 详情中的英文类型替换为台湾译名", async () => {
+	const request = { method: "GET", url: "https://api.themoviedb.org/3/tv/1399?language=zh-TW", headers: {} };
+	const response = {
+		status: 200,
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({
+			genres: [
+				{ id: 10765, name: "Sci-Fi & Fantasy" },
+				{ id: 10768, name: "War & Politics" },
+			],
+		}),
+	};
+	await applyTmdbResponseRules(request, response, { argument: { aliasFallback: false, characterTranslation: false, aggregateCredits: false } });
+	assert.deepEqual(
+		JSON.parse(response.body).genres.map(genre => genre.name),
+		["科幻奇幻", "戰爭政治"],
+	);
+});
+
+test("zh-HK 详情中的类型使用香港译名", async () => {
+	const request = { method: "GET", url: "https://api.themoviedb.org/3/tv/1399?language=zh-HK", headers: {} };
+	const response = {
+		status: 200,
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ genres: [{ id: 10768, name: "War & Politics" }] }),
+	};
+	await applyTmdbResponseRules(request, response, { argument: { aliasFallback: false, characterTranslation: false, aggregateCredits: false } });
+	assert.equal(JSON.parse(response.body).genres[0].name, "戰爭政治");
+});
+
+test("表外的类型即使 TMDB 返回英文也不改写", async () => {
+	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN", headers: {} };
+	const response = {
+		status: 200,
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({
+			genres: [
+				{ id: 18, name: "Drama" },
+				{ id: 53, name: "Thriller" },
+				{ id: 10759, name: "Action & Adventure" },
+			],
+		}),
+	};
+	await applyTmdbResponseRules(request, response, { argument: { aliasFallback: false, characterTranslation: false, aggregateCredits: false } });
+	assert.deepEqual(
+		JSON.parse(response.body).genres.map(genre => genre.name),
+		["Drama", "Thriller", "Action & Adventure"],
+	);
+});
+
+test("非中文请求不改写类型名称", async () => {
+	const request = { method: "GET", url: "https://api.themoviedb.org/3/tv/1399?language=en-US", headers: {} };
+	const response = {
+		status: 200,
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ genres: [{ id: 10765, name: "Sci-Fi & Fantasy" }] }),
+	};
+	await applyTmdbResponseRules(request, response, { argument: { aliasFallback: false, characterTranslation: false, aggregateCredits: false } });
+	assert.equal(JSON.parse(response.body).genres[0].name, "Sci-Fi & Fantasy");
+});
+
+test("TMDB 已返回中文的类型保持原值，不做简繁转换", async () => {
+	const request = { method: "GET", url: "https://api.themoviedb.org/3/tv/1399?language=zh-TW", headers: {} };
+	const response = {
+		status: 200,
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({
+			genres: [
+				{ id: 10765, name: "科幻奇幻" },
+				{ id: 10768, name: "战争政治" },
+			],
+		}),
+	};
+	await applyTmdbResponseRules(request, response, { argument: { aliasFallback: false, characterTranslation: false, aggregateCredits: false } });
+	assert.deepEqual(
+		JSON.parse(response.body).genres.map(genre => genre.name),
+		["科幻奇幻", "战争政治"],
+	);
+});
+
+test("zh 无区域按简体、zh-Hant-TW 与 zh-HK 按繁体", async () => {
+	const cases = [
+		["zh", "战争政治"],
+		["zh-Hant-TW", "戰爭政治"],
+		["zh-HK", "戰爭政治"],
+	];
+	for (const [language, expected] of cases) {
+		const request = { method: "GET", url: `https://api.themoviedb.org/3/tv/1399?language=${language}`, headers: {} };
+		const response = {
+			status: 200,
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ genres: [{ id: 10768, name: "War & Politics" }] }),
+		};
+		await applyTmdbResponseRules(request, response, { argument: { aliasFallback: false, characterTranslation: false, aggregateCredits: false } });
+		assert.equal(JSON.parse(response.body).genres[0].name, expected, `${language} 应为 ${expected}`);
+	}
+});
+
+test("未收录的类型 ID 保留 TMDB 返回的名称", async () => {
+	const request = { method: "GET", url: "https://api.themoviedb.org/3/tv/1399?language=zh-CN", headers: {} };
+	const response = {
+		status: 200,
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({
+			genres: [
+				{ id: 999999, name: "Unknown Genre" },
+				{ id: 10765, name: "Sci-Fi & Fantasy" },
+			],
+		}),
+	};
+	await applyTmdbResponseRules(request, response, { argument: { aliasFallback: false, characterTranslation: false, aggregateCredits: false } });
+	assert.deepEqual(
+		JSON.parse(response.body).genres.map(genre => genre.name),
+		["Unknown Genre", "科幻奇幻"],
+	);
+});
+
+test("genres 列表接口也按请求语言补全中文", async () => {
+	const request = { method: "GET", url: "https://api.themoviedb.org/3/genre/tv/list?language=zh-CN", headers: {} };
+	const response = {
+		status: 200,
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ genres: [{ id: 10765, name: "Sci-Fi & Fantasy" }, { id: 10768, name: "War & Politics" }] }),
+	};
+	await applyTmdbResponseRules(request, response, { argument: { aliasFallback: false, characterTranslation: false, aggregateCredits: false } });
+	assert.deepEqual(
+		JSON.parse(response.body).genres.map(genre => genre.name),
+		["科幻奇幻", "战争政治"],
+	);
+});
+
+test("类型表只覆盖 TMDB 未翻译的 10765/10768", () => {
+	assert.deepEqual(
+		[...GENRE_NAMES.keys()].sort((a, b) => a - b),
+		[10765, 10768],
+	);
+	for (const [id, names] of GENRE_NAMES) {
+		assert.deepEqual(Object.keys(names).sort(), ["zh-CN", "zh-HK", "zh-TW"], `${id} 应维护三套译名`);
+	}
 });

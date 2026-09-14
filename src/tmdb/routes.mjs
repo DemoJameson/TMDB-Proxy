@@ -4,6 +4,8 @@ const TMDB_IMAGE_HOSTS = new Set(["image.tmdb.org"]);
 
 const FORWARD_HOSTS = new Set(["forwardinfo.vvebo.vip"]);
 
+const HAN_REGEX = /[\u3400-\u9fff]/;
+
 function isForwardHost(hostname) {
 	return FORWARD_HOSTS.has(String(hostname).toLowerCase());
 }
@@ -66,6 +68,12 @@ function rewriteForwardToTmdbUrl(url, { keepSearch = false } = {}) {
 function isChineseLanguage(language) {
 	const normalized = String(language ?? "").toLowerCase();
 	return normalized === "zh" || normalized.startsWith("zh-");
+}
+
+// 判断文本是否含汉字，用于识别标题/名称是否已是中文（不涉及简繁转换）。
+// Whether the text contains Han characters; used to tell whether a title/name is already Chinese.
+function hasHan(value) {
+	return HAN_REGEX.test(String(value ?? ""));
 }
 
 function getRequestLanguage(url) {
@@ -144,4 +152,25 @@ function buildMediaDetailUrl(sourceUrl, mediaType, mediaId) {
 	return url;
 }
 
-export { appendToResponse, buildAlternativeTitlesUrl, buildExternalIdsUrl, buildMediaDetailUrl, buildTvDetailUrl, FORWARD_HOSTS, getRequestLanguage, isChineseLanguage, isForwardHost, isTmdbCompatiblePath, isTmdbHost, isTmdbImageHost, parseTmdbRoute, rewriteAppendToResponse, rewriteForwardToTmdbUrl, rewriteToTvAggregateCredits, rewriteToTvSeasonAggregateCredits, TMDB_HOSTS, TMDB_IMAGE_HOSTS };
+export {
+	appendToResponse,
+	buildAlternativeTitlesUrl,
+	buildExternalIdsUrl,
+	buildMediaDetailUrl,
+	buildTvDetailUrl,
+	FORWARD_HOSTS,
+	getRequestLanguage,
+	hasHan,
+	isChineseLanguage,
+	isForwardHost,
+	isTmdbCompatiblePath,
+	isTmdbHost,
+	isTmdbImageHost,
+	parseTmdbRoute,
+	rewriteAppendToResponse,
+	rewriteForwardToTmdbUrl,
+	rewriteToTvAggregateCredits,
+	rewriteToTvSeasonAggregateCredits,
+	TMDB_HOSTS,
+	TMDB_IMAGE_HOSTS,
+};
