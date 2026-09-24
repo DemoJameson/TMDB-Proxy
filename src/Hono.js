@@ -3,6 +3,7 @@ import { Redis } from "@upstash/redis";
 import HonoWorkerAdapter from "./class/HonoWorkerAdapter.mjs";
 import { Request } from "./process/Request.mjs";
 import { Response } from "./process/Response.mjs";
+import { getTmdbApiKey } from "./tmdb/api-key.mjs";
 import { RedisCacheStore } from "./tmdb/cache-redis.mjs";
 import { fireCacheWrite } from "./tmdb/cache-store.mjs";
 import { injectTmdbCredential } from "./tmdb/proxy.mjs";
@@ -59,6 +60,14 @@ async function handleCacheSet(c) {
 	return c.json({ ok: true });
 }
 
+// 密钥下发端点 —— 供脚本端在 key 轮换或失效后拉取后端环境变量中的最新 key。
+// API key endpoint — lets scripts fetch the latest key from the backend env after rotation or invalidation.
+async function handleApiKey(c) {
+	const apiKey = getTmdbApiKey(c.env);
+	if (!apiKey) return c.json({ error: "TMDB_API_KEY not configured" }, 503);
+	return c.json({ apiKey }, 200, { "cache-control": "no-store" });
+}
+
 /***************** Processing *****************/
 export default new Hono()
 	// 同时注册 /cache/* 和 /api/cache/* 路径，兼容 Cloudflare Workers（无 /api 前缀）和 Vercel（/api/* 前缀）。
@@ -67,11 +76,13 @@ export default new Hono()
 	.post("/api/cache/get", handleCacheGet)
 	.post("/cache/set", handleCacheSet)
 	.post("/api/cache/set", handleCacheSet)
+	.get("/key", handleApiKey)
+	.get("/api/key", handleApiKey)
 	.all("/:rest{.*}", async c => {
 		let $request = await HonoWorkerAdapter.buildRequest(c);
 		if (!$request) return c.text("Not Found", 404);
 		let $response;
-		({ $request, $response } = await Request($request));
+		({ $request, $response } = await Request($request, { env: c.env }));
 		switch (typeof $response) {
 			case "object":
 				console.debug("finally", `echo $response: ${JSON.stringify($response, null, 2)}`);
@@ -80,7 +91,7 @@ export default new Hono()
 				console.debug("finally", `$request: ${JSON.stringify($request, null, 2)}`);
 				injectTmdbCredential($request, c.env?.TMDB_ACCESS_TOKEN ?? globalThis.process?.env?.TMDB_ACCESS_TOKEN);
 				$response = await fetchUpstream($request);
-				$response = await Response($request, $response, { cacheStore: initCacheStore(c.env), waitUntil: getWaitUntil(c) });
+				$response = await Response($request, $response, { cacheStore: initCacheStore(c.env), waitUntil: getWaitUntil(c), env: c.env });
 				return HonoWorkerAdapter.writeResponse(c, $response);
 			default:
 				console.error(`不合法的 $response 类型: ${typeof $response}`);

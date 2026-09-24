@@ -1,15 +1,7 @@
+import { createTmdbApiKeyProvider } from "./api-key.mjs";
 import { resolveProxyConfig } from "./config.mjs";
 import { STATE_HEADER, setHeader } from "./headers.mjs";
 import { appendToResponse, getRequestLanguage, isChineseLanguage, isForwardHost, isTmdbCompatiblePath, isTmdbImageHost, parseTmdbRoute, rewriteAppendToResponse, rewriteForwardToTmdbUrl, rewriteToTvAggregateCredits, rewriteToTvSeasonAggregateCredits } from "./routes.mjs";
-
-const DEFAULT_TMDB_API_KEY = "ebb2c093078553178d5d75c6d86d7bde";
-
-// 获取 TMDB API Key：优先环境变量 TMDB_API_KEY，回退到硬编码默认值。
-// Get TMDB API Key: prefer TMDB_API_KEY env var, fall back to hardcoded default.
-function getTmdbApiKey(env) {
-	const envKey = env?.TMDB_API_KEY ?? globalThis.process?.env?.TMDB_API_KEY;
-	return typeof envKey === "string" && envKey ? envKey : DEFAULT_TMDB_API_KEY;
-}
 
 function encodeState(state) {
 	return encodeURIComponent(JSON.stringify(state));
@@ -43,8 +35,12 @@ async function applyTmdbRequestRules(request, options = {}) {
 	const route = parseTmdbRoute(url);
 	const state = { hadClientAlternativeTitles: false, hadClientTranslations: false, hadClientExternalIds: false, aggregateCreditsRewrite: false, appendCreditsRewrite: false, hadClientAggregateCreditsAppend: false };
 	const hasAuthorization = Object.keys(request.headers ?? {}).some(key => key.toLowerCase() === "authorization");
-	const apiKey = getTmdbApiKey(options.env);
-	if (isTmdbCompatiblePath(url) && !url.searchParams.get("api_key") && !hasAuthorization) url.searchParams.set("api_key", apiKey);
+	const apiKeyProvider = options.apiKeyProvider ?? createTmdbApiKeyProvider({ env: options.env, backendUrl: config.cacheBackend, storage: options.storage, now: options.now });
+	// 仅在需要注入 key 时解析：脚本端首次使用可能要向后端拉取，避免对已有凭证的请求发起无谓请求。
+	// Resolve the key only when injection is needed: script runtimes may fetch it remotely, so skip requests that already carry credentials.
+	const needsApiKey = (isTmdbCompatiblePath(url) && !url.searchParams.get("api_key") && !hasAuthorization) || isForwardHost(url.hostname);
+	const apiKey = needsApiKey ? await apiKeyProvider.get() : undefined;
+	if (apiKey && isTmdbCompatiblePath(url) && !url.searchParams.get("api_key") && !hasAuthorization) url.searchParams.set("api_key", apiKey);
 	if (isForwardHost(url.hostname)) {
 		const tmdbUrl = new URL(url.toString());
 		rewriteForwardToTmdbUrl(tmdbUrl, { keepSearch: true });
@@ -63,7 +59,7 @@ async function applyTmdbRequestRules(request, options = {}) {
 			}
 		}
 		if (needsRedirect) {
-			if (!tmdbUrl.searchParams.get("api_key")) tmdbUrl.searchParams.set("api_key", apiKey);
+			if (!tmdbUrl.searchParams.get("api_key") && apiKey) tmdbUrl.searchParams.set("api_key", apiKey);
 			return { $request: request, $response: { status: 302, headers: { Location: tmdbUrl.toString() } }, state, config };
 		}
 		request.url = url.toString();
@@ -110,4 +106,4 @@ async function applyTmdbRequestRules(request, options = {}) {
 	return { $request: request, state, config };
 }
 
-export { applyTmdbRequestRules, DEFAULT_TMDB_API_KEY, encodeState, fetchTmdbWithNativeFetch, fetchUpstream, getTmdbApiKey, STATE_HEADER };
+export { applyTmdbRequestRules, encodeState, fetchTmdbWithNativeFetch, fetchUpstream, STATE_HEADER };

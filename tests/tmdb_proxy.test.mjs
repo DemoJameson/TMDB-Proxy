@@ -5,8 +5,15 @@ import { pickChineseAlias } from "../src/tmdb/aliases.mjs";
 import { CACHE_MAX_BYTES, CACHE_NEGATIVE_TTL_MS, CACHE_FULL_TTL_MS, CACHE_TTL_MS, createEmptyCache, normalizeCache, setCacheEntry, writeCache } from "../src/tmdb/cache.mjs";
 import { parseRuntimeArgument, resolveProxyConfig } from "../src/tmdb/config.mjs";
 import { GENRE_NAMES } from "../src/tmdb/genres.mjs";
-import { applyTmdbRequestRules, applyTmdbResponseRules, DEFAULT_TMDB_API_KEY, fetchTmdbWithNativeFetch, STATE_HEADER } from "../src/tmdb/proxy.mjs";
+import { applyTmdbRequestRules, applyTmdbResponseRules, fetchTmdbWithNativeFetch, STATE_HEADER } from "../src/tmdb/proxy.mjs";
 import { isForwardHost, isTmdbHost, isTmdbImageHost } from "../src/tmdb/routes.mjs";
+
+// 测试用 API Key：反代场景由后端环境变量提供，脚本场景由缓存后端下发。
+// Test API keys: the backend env provides the key for reverse proxies, the cache backend serves it for scripts.
+const TEST_API_KEY = "test-tmdb-api-key";
+const TEST_ENV = { TMDB_API_KEY: TEST_API_KEY };
+const ROTATED_API_KEY = "rotated-tmdb-api-key";
+let remoteApiKey = TEST_API_KEY;
 
 // 拦截缓存后端 HTTP 请求，返回空结果，避免测试中真实网络调用。
 // Intercepts cache backend HTTP requests, returns empty results to avoid real network calls in tests.
@@ -15,8 +22,22 @@ globalThis.fetch = async (resource, init) => {
 	const url = typeof resource === "string" ? resource : resource?.url ?? "";
 	if (url.includes("/cache/get")) return new Response(JSON.stringify({ movie: {}, tv: {} }), { status: 200, headers: { "content-type": "application/json" } });
 	if (url.includes("/cache/set")) return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "content-type": "application/json" } });
+	if (url.endsWith("/key")) return new Response(JSON.stringify({ apiKey: remoteApiKey }), { status: 200, headers: { "content-type": "application/json" } });
 	return originalFetch(resource, init);
 };
+
+// 模拟脚本运行时（Surge/Loon/QX 由宿主注入 $done），使 API Key 提供者走远端拉取分支。
+// Simulates a script runtime (Surge/Loon/QX inject $done) so the API key provider takes the remote fetch path.
+async function withScriptRuntime(run) {
+	const originalDone = globalThis.$done;
+	globalThis.$done = () => {};
+	try {
+		return await run();
+	} finally {
+		if (originalDone === undefined) globalThis.$done = undefined;
+		else globalThis.$done = originalDone;
+	}
+}
 
 function createMemoryStorage(initial = {}) {
 	return {
@@ -33,11 +54,17 @@ function createMemoryStorage(initial = {}) {
 
 test("请求电影中文详情时追加 alternative_titles 并记录客户端是否已请求", async () => {
 	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN", headers: {} };
-	const { $request } = await applyTmdbRequestRules(request, { argument: { aliasFallback: true } });
+	const { $request } = await applyTmdbRequestRules(request, { argument: { aliasFallback: true }, env: TEST_ENV });
 	const url = new URL($request.url);
-	assert.equal(url.searchParams.get("api_key"), DEFAULT_TMDB_API_KEY);
+	assert.equal(url.searchParams.get("api_key"), TEST_API_KEY);
 	assert.equal(url.searchParams.get("append_to_response"), "alternative_titles,external_ids");
 	assert.ok($request.headers[STATE_HEADER]);
+});
+
+test("未配置环境变量时不注入 api_key，客户端需自带凭证", async () => {
+	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN", headers: {} };
+	await applyTmdbRequestRules(request, { argument: { aliasFallback: true }, env: {} });
+	assert.equal(new URL(request.url).searchParams.get("api_key"), null);
 });
 
 test("已有 api_key 时不会覆盖客户端参数", async () => {
@@ -488,13 +515,14 @@ test("返回 results 的电影列表也会按条目补全中文片名", async ()
 	const fetched = [];
 	await applyTmdbResponseRules(request, response, {
 		argument: { aliasFallback: true },
+		env: TEST_ENV,
 		fetcher: async aliasRequest => {
 			fetched.push(aliasRequest);
 			return { ok: true, status: 200, body: JSON.stringify({ alternative_titles: { titles: [{ iso_3166_1: "CN", title: "搏击俱乐部" }] } }) };
 		},
 	});
 	assert.equal(fetched.length, 1);
-	assert.equal(fetched[0].url, `https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=alternative_titles%2Cexternal_ids&api_key=${DEFAULT_TMDB_API_KEY}`);
+	assert.equal(fetched[0].url, `https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=alternative_titles%2Cexternal_ids&api_key=${TEST_API_KEY}`);
 	assert.equal(fetched[0].headers.Authorization, "Bearer token");
 	assert.equal(fetched[0].headers[STATE_HEADER], undefined);
 	assert.deepEqual(
@@ -543,6 +571,7 @@ test("混合搜索中的 person 条目不会按 tv name 误补全", async () => 
 	const fetched = [];
 	await applyTmdbResponseRules(request, response, {
 		argument: { aliasFallback: true },
+		env: TEST_ENV,
 		fetcher: async aliasRequest => {
 			fetched.push(aliasRequest.url);
 			return { ok: true, status: 200, body: JSON.stringify({ alternative_titles: { results: [{ iso_3166_1: "CN", title: "权力的游戏" }] } }) };
@@ -551,7 +580,7 @@ test("混合搜索中的 person 条目不会按 tv name 误补全", async () => 
 	const body = JSON.parse(response.body);
 	assert.equal(body.results[0].name, "Brad Pitt");
 	assert.equal(body.results[1].name, "权力的游戏");
-	assert.deepEqual(fetched, [`https://api.themoviedb.org/3/tv/1399?language=zh-CN&query=test&append_to_response=alternative_titles%2Cexternal_ids&api_key=${DEFAULT_TMDB_API_KEY}`]);
+	assert.deepEqual(fetched, [`https://api.themoviedb.org/3/tv/1399?language=zh-CN&query=test&append_to_response=alternative_titles%2Cexternal_ids&api_key=${TEST_API_KEY}`]);
 });
 
 test("非中文列表请求不会为条目额外请求别名", async () => {
@@ -886,14 +915,14 @@ test("isForwardHost 识别 forwardinfo 域名", () => {
 
 test("Forward TV season credits 请求（aggregateCredits 开启）重定向到 TMDB", async () => {
 	const request = { method: "GET", url: "https://forwardinfo.vvebo.vip/tv/272432/season/1/credits?language=zh-CN", headers: {} };
-	const result = await applyTmdbRequestRules(request, { argument: { aggregateCredits: true } });
+	const result = await applyTmdbRequestRules(request, { argument: { aggregateCredits: true }, env: TEST_ENV });
 	assert.ok(result.$response, "should return redirect response");
 	assert.equal(result.$response.status, 302);
 	const location = new URL(result.$response.headers.Location);
 	assert.equal(location.hostname, "api.tmdb.org");
 	assert.equal(location.pathname, "/3/tv/272432/season/1/credits");
 	assert.equal(location.searchParams.get("language"), "zh-CN");
-	assert.equal(location.searchParams.get("api_key"), DEFAULT_TMDB_API_KEY);
+	assert.equal(location.searchParams.get("api_key"), TEST_API_KEY);
 });
 
 test("Forward 中文详情请求（aliasFallback 开启）重定向到 TMDB", async () => {
@@ -974,6 +1003,7 @@ test("Forward 中文搜索响应会按条目补全中文片名，fetcher 请求 
 	const fetched = [];
 	await applyTmdbResponseRules(request, response, {
 		argument: { aliasFallback: true },
+		env: TEST_ENV,
 		fetcher: async aliasRequest => {
 			fetched.push(aliasRequest);
 			return { ok: true, status: 200, body: JSON.stringify({ alternative_titles: { titles: [{ iso_3166_1: "CN", title: "搏击俱乐部" }] } }) };
@@ -982,7 +1012,7 @@ test("Forward 中文搜索响应会按条目补全中文片名，fetcher 请求 
 	assert.equal(fetched.length, 1);
 	assert.equal(
 		fetched[0].url,
-		`https://api.tmdb.org/3/movie/550?append_to_response=alternative_titles%2Cexternal_ids&language=zh-CN&api_key=${DEFAULT_TMDB_API_KEY}`,
+		`https://api.tmdb.org/3/movie/550?append_to_response=alternative_titles%2Cexternal_ids&language=zh-CN&api_key=${TEST_API_KEY}`,
 	);
 	assert.equal(fetched[0].headers["X-Signature"], undefined);
 	assert.equal(fetched[0].headers["X-Timestamp"], undefined);
@@ -1008,13 +1038,14 @@ test("Forward 中文搜索剧集响应同样按条目补全中文片名", async 
 	const fetched = [];
 	await applyTmdbResponseRules(request, response, {
 		argument: { aliasFallback: true },
+		env: TEST_ENV,
 		fetcher: async aliasRequest => {
 			fetched.push(aliasRequest);
 			return { ok: true, status: 200, body: JSON.stringify({ alternative_titles: { results: [{ iso_3166_1: "CN", title: "为全人类" }] } }) };
 		},
 	});
 	assert.equal(fetched.length, 1);
-	assert.equal(fetched[0].url, `https://api.tmdb.org/3/tv/87917?append_to_response=alternative_titles%2Cexternal_ids&language=zh-CN&api_key=${DEFAULT_TMDB_API_KEY}`);
+	assert.equal(fetched[0].url, `https://api.tmdb.org/3/tv/87917?append_to_response=alternative_titles%2Cexternal_ids&language=zh-CN&api_key=${TEST_API_KEY}`);
 	assert.equal(JSON.parse(response.body).results[0].name, "为全人类");
 });
 
@@ -2542,4 +2573,106 @@ test("类型表只覆盖 TMDB 未翻译的 10765/10768", () => {
 	for (const [id, names] of GENRE_NAMES) {
 		assert.deepEqual(Object.keys(names).sort(), ["zh-CN", "zh-HK", "zh-TW"], `${id} 应维护三套译名`);
 	}
+});
+
+test("后端 /key 端点下发环境变量中的 TMDB API Key", async () => {
+	const response = await app.request("https://example.test/key", {}, TEST_ENV);
+	assert.equal(response.status, 200);
+	assert.deepEqual(await response.json(), { apiKey: TEST_API_KEY });
+	assert.equal(response.headers.get("cache-control"), "no-store");
+	const missing = await app.request("https://example.test/api/key", {}, {});
+	assert.equal(missing.status, 503);
+});
+
+test("反代已有环境变量时不会请求后端密钥端点", async () => {
+	let keyFetches = 0;
+	const original = globalThis.fetch;
+	globalThis.fetch = async (resource, init) => {
+		const url = typeof resource === "string" ? resource : resource?.url ?? "";
+		if (url.endsWith("/key")) {
+			keyFetches += 1;
+			return new Response(JSON.stringify({ apiKey: ROTATED_API_KEY }), { status: 200, headers: { "content-type": "application/json" } });
+		}
+		return original(resource, init);
+	};
+	try {
+		const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN", headers: {} };
+		await applyTmdbRequestRules(request, { argument: { aliasFallback: true, cacheBackend: "https://cache.test" }, env: TEST_ENV });
+		assert.equal(new URL(request.url).searchParams.get("api_key"), TEST_API_KEY);
+		assert.equal(keyFetches, 0);
+	} finally {
+		globalThis.fetch = original;
+	}
+});
+
+test("脚本端无环境变量时向缓存后端拉取 API Key 并写入本地缓存", async () => {
+	const storage = createMemoryStorage();
+	await withScriptRuntime(async () => {
+		const options = { argument: { aliasFallback: true, cacheBackend: "https://cache.test" }, env: {}, storage };
+		const first = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN", headers: {} };
+		await applyTmdbRequestRules(first, options);
+		assert.equal(new URL(first.url).searchParams.get("api_key"), TEST_API_KEY);
+		assert.equal(storage.store.dj_tmdb_proxy_api_key.key, TEST_API_KEY);
+		// 命中本地缓存后不再请求后端：此时后端 key 变化也不影响本次请求。
+		remoteApiKey = ROTATED_API_KEY;
+		try {
+			const second = { method: "GET", url: "https://api.themoviedb.org/3/movie/551?language=zh-CN", headers: {} };
+			await applyTmdbRequestRules(second, options);
+			assert.equal(new URL(second.url).searchParams.get("api_key"), TEST_API_KEY);
+		} finally {
+			remoteApiKey = TEST_API_KEY;
+		}
+	});
+});
+
+test("客户端自带 key 失效时不会刷新后端 API Key", async () => {
+	const storage = createMemoryStorage();
+	let keyFetches = 0;
+	const original = globalThis.fetch;
+	globalThis.fetch = async (resource, init) => {
+		const url = typeof resource === "string" ? resource : resource?.url ?? "";
+		if (url.endsWith("/key")) {
+			keyFetches += 1;
+			return new Response(JSON.stringify({ apiKey: ROTATED_API_KEY }), { status: 200, headers: { "content-type": "application/json" } });
+		}
+		return original(resource, init);
+	};
+	try {
+		await withScriptRuntime(async () => {
+			const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?api_key=client-key&language=zh-CN", headers: {} };
+			const response = { status: 401, headers: { "content-type": "application/json" }, body: JSON.stringify({ status_code: 7, status_message: "Invalid API key" }) };
+			await applyTmdbResponseRules(request, response, { argument: { aliasFallback: true, cacheBackend: "https://cache.test" }, env: {}, storage });
+		});
+		assert.equal(keyFetches, 0);
+	} finally {
+		globalThis.fetch = original;
+	}
+});
+
+test("TMDB 返回 401 时脚本端刷新 API Key 并重试列表详情子请求", async () => {
+	const storage = createMemoryStorage({ dj_tmdb_proxy_api_key: { key: "stale-key", expiresAt: Date.now() + CACHE_TTL_MS } });
+	const request = { method: "GET", url: "https://api.tmdb.org/3/search/movie?language=zh-CN&query=test", headers: {} };
+	const response = { status: 200, headers: { "content-type": "application/json" }, body: JSON.stringify({ results: [{ id: 550, title: "Fight Club" }] }) };
+	const requestedKeys = [];
+	remoteApiKey = ROTATED_API_KEY;
+	try {
+		await withScriptRuntime(async () => {
+			await applyTmdbResponseRules(request, response, {
+				argument: { aliasFallback: true, cacheBackend: "https://cache.test" },
+				env: {},
+				storage,
+				fetcher: async aliasRequest => {
+					const key = new URL(aliasRequest.url).searchParams.get("api_key");
+					requestedKeys.push(key);
+					if (key === "stale-key") return { ok: false, status: 401, body: JSON.stringify({ status_code: 7, status_message: "Invalid API key" }) };
+					return { ok: true, status: 200, body: JSON.stringify({ alternative_titles: { titles: [{ iso_3166_1: "CN", title: "搏击俱乐部" }] } }) };
+				},
+			});
+		});
+	} finally {
+		remoteApiKey = TEST_API_KEY;
+	}
+	assert.deepEqual(requestedKeys, ["stale-key", ROTATED_API_KEY]);
+	assert.equal(storage.store.dj_tmdb_proxy_api_key.key, ROTATED_API_KEY);
+	assert.equal(JSON.parse(response.body).results[0].title, "搏击俱乐部");
 });

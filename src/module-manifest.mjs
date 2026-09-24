@@ -51,7 +51,7 @@ const argumentFields = [
 		defaultValue: "https://tmdb-proxy.demojameson.de5.net",
 		type: "text",
 		tag: "缓存后端",
-		desc: "远端缓存地址，留空使用默认地址",
+		desc: "远端缓存与 API Key 地址，留空使用默认地址",
 	},
 ];
 

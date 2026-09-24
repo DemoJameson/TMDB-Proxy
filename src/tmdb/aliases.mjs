@@ -5,10 +5,10 @@ import STCharacters from "opencc-js/dict/STCharacters";
 import TSCharacters from "opencc-js/dict/TSCharacters";
 import TWVariants from "opencc-js/dict/TWVariants";
 import TWVariantsPhrases from "opencc-js/dict/TWVariantsPhrases";
+import { createTmdbApiKeyProvider } from "./api-key.mjs";
 import { CACHE_NEGATIVE_TTL_MS, CACHE_TTL_MS } from "./cache.mjs";
 import { fireCacheWrite } from "./cache-store.mjs";
 import { buildSubRequestHeaders } from "./headers.mjs";
-import { getTmdbApiKey } from "./request-rules.mjs";
 import { buildMediaDetailUrl, getRequestLanguage, hasHan, isChineseLanguage, isForwardHost, isTmdbCompatiblePath, parseTmdbRoute, rewriteForwardToTmdbUrl } from "./routes.mjs";
 
 const LANGUAGE_REGIONS = {
@@ -231,12 +231,34 @@ function createListDetailRequest(sourceRequest, mediaType, mediaId, language, ap
 	const url = buildMediaDetailUrl(sourceUrl, mediaType, mediaId);
 	url.searchParams.set("append_to_response", "alternative_titles,external_ids");
 	if (language && !url.searchParams.get("language")) url.searchParams.set("language", language);
-	if (!url.searchParams.get("api_key")) url.searchParams.set("api_key", apiKey);
+	if (apiKey && !url.searchParams.get("api_key")) url.searchParams.set("api_key", apiKey);
 	return {
 		method: "GET",
 		url: url.toString(),
 		headers: buildSubRequestHeaders(sourceRequest, isForward),
 	};
+}
+
+// 发送列表条目的详情子请求，网络错误仅告警，不影响整个列表响应。
+// Sends the detail subrequest for a list item; network errors are only logged and do not break the list response.
+async function requestListDetail(fetcher, detailRequest, mediaType, mediaId) {
+	return await fetcher(detailRequest).catch(error => {
+		console.warn(`[tmdb-proxy] 列表别名详情请求失败: ${mediaType}/${mediaId}`, error?.message ?? error);
+		return undefined;
+	});
+}
+
+// 详情子请求遇到 401，且失败的是本代理注入的 key 时刷新 key 并重试一次，使当前列表也能补全中文。
+// Retries a detail subrequest once after refreshing the key, only when TMDB rejected the key this proxy injected.
+async function fetchListDetail(fetcher, buildRequest, mediaType, mediaId, apiKeyProvider, waitUntil) {
+	const apiKey = await apiKeyProvider.get();
+	const detailRequest = buildRequest(apiKey);
+	const response = await requestListDetail(fetcher, detailRequest, mediaType, mediaId);
+	if (response?.status !== 401) return response;
+	if (!apiKeyProvider.isOwnKey(new URL(detailRequest.url).searchParams.get("api_key"))) return response;
+	const refreshedKey = await apiKeyProvider.handleUnauthorized(waitUntil);
+	if (!refreshedKey || refreshedKey === apiKey) return response;
+	return await requestListDetail(fetcher, buildRequest(refreshedKey), mediaType, mediaId);
 }
 
 async function mapWithConcurrency(items, limit, iteratee) {
@@ -254,9 +276,9 @@ async function applyChineseAliasFallbackToList(request, body, options = {}) {
 	if (!isTmdbListResponse(request.url, body, options)) return body;
 	const items = getListItemsForAliasFallback(request.url, body);
 	const language = getRequestLanguage(new URL(request.url));
-	const apiKey = getTmdbApiKey(options.env);
 	const fetcher = options.fetcher;
 	const cacheStore = options.cacheStore;
+	const apiKeyProvider = options.apiKeyProvider ?? createTmdbApiKeyProvider({ env: options.env, storage: options.storage, now: options.now });
 	if (typeof fetcher !== "function" || !cacheStore) return body;
 	const pendingItems = [];
 	for (const item of items) {
@@ -284,10 +306,14 @@ async function applyChineseAliasFallbackToList(request, body, options = {}) {
 			if (alias) item[titleField] = alias;
 			return;
 		}
-		const detailResponse = await fetcher(createListDetailRequest(request, mediaType, item.id, language, apiKey)).catch(error => {
-			console.warn(`[tmdb-proxy] 列表别名详情请求失败: ${mediaType}/${item.id}`, error?.message ?? error);
-			return undefined;
-		});
+		const detailResponse = await fetchListDetail(
+			fetcher,
+			apiKey => createListDetailRequest(request, mediaType, item.id, language, apiKey),
+			mediaType,
+			item.id,
+			apiKeyProvider,
+			options.waitUntil,
+		);
 		if (!detailResponse?.ok && !(detailResponse?.status >= 200 && detailResponse?.status < 300)) return;
 		try {
 			const detailBody = JSON.parse(detailResponse.body ?? "{}");

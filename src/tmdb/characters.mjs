@@ -1,10 +1,10 @@
+import { createTmdbApiKeyProvider } from "./api-key.mjs";
 import { convertChinese, extractFallbackInfoFromBody, extractOriginCountries } from "./aliases.mjs";
 import { fetchDoubanCreditsStats, fetchDoubanSeasons, mergeDoubanCredits, NetworkError, normalizeDoubanCreditsPayload, searchDoubanSubject } from "./douban.mjs";
 import { CACHE_FULL_TTL_MS, CACHE_NEGATIVE_TTL_MS, CACHE_TTL_MS } from "./cache.mjs";
 import { fireCacheWrite } from "./cache-store.mjs";
 import { buildSubRequestHeaders } from "./headers.mjs";
 import { buildExternalIdsUrl, buildMediaDetailUrl, getRequestLanguage, hasHan, isChineseLanguage, parseTmdbRoute, rewriteForwardToTmdbUrl } from "./routes.mjs";
-import { getTmdbApiKey } from "./request-rules.mjs";
 
 // 中日韩制片地区（含港澳台）。
 // CJK production regions (including HK, MO, TW).
@@ -18,7 +18,7 @@ function createExternalIdsRequest(sourceRequest, mediaType, mediaId, apiKey) {
 	const sourceUrl = new URL(sourceRequest.url);
 	const isForward = rewriteForwardToTmdbUrl(sourceUrl);
 	const url = buildExternalIdsUrl(sourceUrl, mediaType, mediaId);
-	if (!url.searchParams.get("api_key") && isForward) url.searchParams.set("api_key", apiKey);
+	if (apiKey && isForward && !url.searchParams.get("api_key")) url.searchParams.set("api_key", apiKey);
 	const headers = buildSubRequestHeaders(sourceRequest, isForward);
 	return { method: "GET", url: url.toString(), headers };
 }
@@ -28,7 +28,7 @@ function createMediaDetailRequest(sourceRequest, mediaType, mediaId, language, a
 	const isForward = rewriteForwardToTmdbUrl(sourceUrl);
 	const url = buildMediaDetailUrl(sourceUrl, mediaType, mediaId);
 	if (language) url.searchParams.set("language", language);
-	if (!url.searchParams.get("api_key") && isForward) url.searchParams.set("api_key", apiKey);
+	if (apiKey && isForward && !url.searchParams.get("api_key")) url.searchParams.set("api_key", apiKey);
 	const headers = buildSubRequestHeaders(sourceRequest, isForward);
 	return { method: "GET", url: url.toString(), headers };
 }
@@ -225,7 +225,8 @@ export async function applyCharacterTranslation(request, body, options = {}) {
 	const fetcher = options.fetcher;
 	const cacheStore = options.cacheStore;
 	if (typeof fetcher !== "function" || !cacheStore) return body;
-	const apiKey = getTmdbApiKey(options.env);
+	const apiKeyProvider = options.apiKeyProvider ?? createTmdbApiKeyProvider({ env: options.env, storage: options.storage, now: options.now });
+	const apiKey = await apiKeyProvider.get();
 	const entry = (await cacheStore.getWithFields(route.mediaType, route.mediaId, ["imdbId", "doubanId", "characters", "originCountries", "aliases", "title", "year"], options.now)) ?? {};
 	try {
 		const imdbId = await resolveImdbId(route, body, request, fetcher, entry, apiKey);
