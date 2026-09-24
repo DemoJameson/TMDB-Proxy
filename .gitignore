@@ -150,3 +150,13 @@ vite.config.ts.timestamp-*
 
 # Test output
 test-output.txt
+
+# 本地工具与 IDE 状态，不入库
+# Local tooling and IDE state, not tracked
+.arts/
+.codegraph/
+.idea/
+.npmrc
+.serena/
+.trae/
+.workbuddy/
