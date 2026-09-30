@@ -88,7 +88,15 @@ function assertManifestIsValid() {
 }
 
 function renderPlugin() {
-	const lines = [`#!name=${metadata.name}`, `#!desc=${metadata.description}`, `#!icon=${metadata.icon}`, `#!homepage=${metadata.homepage}`, `#!author=${metadata.author}`, "", "[Argument]"];
+	const lines = [
+		`#!name=${metadata.name}`,
+		`#!desc=${metadata.description}`,
+		`#!icon=${metadata.icon}`,
+		`#!homepage=${metadata.homepage}`,
+		`#!author=${metadata.author}`,
+		"",
+		"[Argument]",
+	];
 	for (const field of argumentFields) lines.push(renderPluginArgumentLine(field));
 	lines.push("", "[Script]");
 	for (const rule of scriptRules.filter(rule => getRuleTargets(rule).includes("plugin"))) {
@@ -106,7 +114,17 @@ function renderPlugin() {
 function renderSgmodule() {
 	const argumentPairs = argumentFields.map(field => `${field.key}:"${formatDefaultValue(field.defaultValue)}"`).join(", ");
 	const argumentDescriptions = argumentFields.map(field => `${field.key}: ${field.desc}`).join("\\n");
-	const lines = [`#!name=${metadata.name}`, `#!desc=${metadata.description}`, `#!icon=${metadata.icon}`, `#!homepage=${metadata.homepage}`, `#!author=${metadata.author}`, `#!arguments=${argumentPairs}`, `#!arguments-desc=${argumentDescriptions}`, "", "[Script]"];
+	const lines = [
+		`#!name=${metadata.name}`,
+		`#!desc=${metadata.description}`,
+		`#!icon=${metadata.icon}`,
+		`#!homepage=${metadata.homepage}`,
+		`#!author=${metadata.author}`,
+		`#!arguments=${argumentPairs}`,
+		`#!arguments-desc=${argumentDescriptions}`,
+		"",
+		"[Script]",
+	];
 	for (const rule of scriptRules.filter(rule => getRuleTargets(rule).includes("sgmodule"))) {
 		const parts = [`${rule.title} = type=${rule.phase}`, `pattern=${rule.pattern}`];
 		if (rule.requiresBody) parts.push("requires-body=true");
@@ -121,7 +139,15 @@ function renderSgmodule() {
 }
 
 function renderSnippet() {
-	const lines = [`#!name=${metadata.name}`, `#!desc=${metadata.description}`, `#!icon=${metadata.icon}`, `#!homepage=${metadata.homepage}`, `#!author=${metadata.author}`, "", "# [rewrite_remote]"];
+	const lines = [
+		`#!name=${metadata.name}`,
+		`#!desc=${metadata.description}`,
+		`#!icon=${metadata.icon}`,
+		`#!homepage=${metadata.homepage}`,
+		`#!author=${metadata.author}`,
+		"",
+		"# [rewrite_remote]",
+	];
 	for (const rule of scriptRules.filter(rule => getRuleTargets(rule).includes("snippet"))) {
 		const snippetType = rule.phase === "http-request" ? "script-request-header" : "script-response-body";
 		lines.push(`# ${rule.comment}`, `${rule.pattern} url ${snippetType} ${buildScriptUrl(rule.scriptFile)}`);

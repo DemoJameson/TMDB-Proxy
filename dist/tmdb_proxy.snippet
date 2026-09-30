@@ -6,9 +6,17 @@
 
 # [rewrite_remote]
 # 追加 alternative_titles，并改写 TV credits 请求
-^https:\/\/(?:api\.(?:themoviedb|tmdb)\.org|vidora-tmdb\.wwmm\.date)\/3\/(?:movie|tv|collection)\/\d+(?:(?:\/season\/\d+)?\/credits|\/alternative_titles)?(?:\?.*)?$ url script-request-header https://raw.githubusercontent.com/DemoJameson/TMDB-Proxy/main/dist/tmdb_proxy_request.js
+^https:\/\/api\.(?:themoviedb|tmdb)\.org\/3\/.*$ url script-request-header https://raw.githubusercontent.com/DemoJameson/TMDB-Proxy/main/dist/tmdb_proxy_request.js
+# vidora 播放器反代请求追加 alternative_titles，并改写 TV credits 请求
+^https:\/\/vidora-tmdb\.wwmm\.date\/3\/(?:movie|tv|collection)\/\d+(?:(?:\/season\/\d+)?\/credits|\/alternative_titles)?(?:\?.*)?$ url script-request-header https://raw.githubusercontent.com/DemoJameson/TMDB-Proxy/main/dist/tmdb_proxy_request.js
 # 请求图片时优先 WebP 格式
 ^https:\/\/image\.tmdb\.org\/.*$ url script-request-header https://raw.githubusercontent.com/DemoJameson/TMDB-Proxy/main/dist/tmdb_proxy_request.js
+# 反代域名 api.tmdb.demojameson.cn 的请求按 TMDB 处理
+^https:\/\/api\.tmdb\.demojameson\.cn\/3\/.*$ url script-request-header https://raw.githubusercontent.com/DemoJameson/TMDB-Proxy/main/dist/tmdb_proxy_request.js
+# 反代域名 image.tmdb.demojameson.cn 的图片请求优先 WebP
+^https:\/\/image\.tmdb\.demojameson\.cn\/.*$ url script-request-header https://raw.githubusercontent.com/DemoJameson/TMDB-Proxy/main/dist/tmdb_proxy_request.js
+# 反代域名响应缺中文标题时回填别名，演职员角色名汉化
+^https:\/\/api\.tmdb\.demojameson\.cn\/3\/.*$ url script-response-body https://raw.githubusercontent.com/DemoJameson/TMDB-Proxy/main/dist/tmdb_proxy_response.js
 # 需要修改的 forwardinfo.vvebo.vip 反代请求重定向到 TMDB
 ^https:\/\/forwardinfo\.vvebo\.vip\/(?:movie|tv|collection)\/\d+(?:(?:\/season\/\d+)?\/credits|\/alternative_titles)?(?:\?.*)?$ url script-request-header https://raw.githubusercontent.com/DemoJameson/TMDB-Proxy/main/dist/tmdb_proxy_request.js
 # 中文详情或列表缺标题时从 alternative_titles 回填中文别名，演职员角色名使用豆瓣数据汉化
@@ -16,4 +24,4 @@
 # 中文列表缺标题时从 alternative_titles 回填中文别名，演职员角色名使用豆瓣数据汉化
 ^https:\/\/forwardinfo\.vvebo\.vip\/.*$ url script-response-body https://raw.githubusercontent.com/DemoJameson/TMDB-Proxy/main/dist/tmdb_proxy_response.js
 # [mitm]
-hostname = api.themoviedb.org, api.tmdb.org, vidora-tmdb.wwmm.date, image.tmdb.org, forwardinfo.vvebo.vip
+hostname = api.themoviedb.org, api.tmdb.org, vidora-tmdb.wwmm.date, image.tmdb.org, forwardinfo.vvebo.vip, api.tmdb.demojameson.cn, image.tmdb.demojameson.cn

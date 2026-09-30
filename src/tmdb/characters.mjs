@@ -1,8 +1,8 @@
-import { createTmdbApiKeyProvider } from "./api-key.mjs";
 import { convertChinese, extractFallbackInfoFromBody, extractOriginCountries } from "./aliases.mjs";
-import { fetchDoubanCreditsStats, fetchDoubanSeasons, mergeDoubanCredits, NetworkError, normalizeDoubanCreditsPayload, searchDoubanSubject } from "./douban.mjs";
+import { createTmdbApiKeyProvider } from "./api-key.mjs";
 import { CACHE_FULL_TTL_MS, CACHE_NEGATIVE_TTL_MS, CACHE_TTL_MS } from "./cache.mjs";
 import { fireCacheWrite } from "./cache-store.mjs";
+import { fetchDoubanCreditsStats, fetchDoubanSeasons, mergeDoubanCredits, NetworkError, normalizeDoubanCreditsPayload, searchDoubanSubject } from "./douban.mjs";
 import { buildSubRequestHeaders } from "./headers.mjs";
 import { buildExternalIdsUrl, buildMediaDetailUrl, getRequestLanguage, hasHan, isChineseLanguage, parseTmdbRoute, rewriteForwardToTmdbUrl } from "./routes.mjs";
 
@@ -115,9 +115,7 @@ async function resolveDoubanIds(mediaType, imdbId, fetcher, entry, fallbackTitle
 		// On seasons request network error, continue with main doubanId; don't block the flow.
 		try {
 			const seasonsPayload = await fetchDoubanSeasons(doubanId, fetcher);
-			seasonDoubanIds = (seasonsPayload?.seasons ?? [])
-				.map(season => String(season?.id ?? "").trim())
-				.filter(id => id && id !== doubanId);
+			seasonDoubanIds = (seasonsPayload?.seasons ?? []).map(season => String(season?.id ?? "").trim()).filter(id => id && id !== doubanId);
 		} catch (error) {
 			if (!(error instanceof NetworkError)) throw error;
 		}
@@ -196,9 +194,7 @@ function applyCharacterTranslations(cast, doubanCredits, language) {
 			// Don't override existing character name (e.g. English) with placeholder
 			const isPlaceholderOnly = finalCharacters.every(character => PLACEHOLDER_CHARACTERS.has(character));
 			if (!isPlaceholderOnly || !currentCharacter) {
-				const translated = finalCharacters
-					.map(character => convertChinese(character, language))
-					.filter(character => character && hasHan(character));
+				const translated = finalCharacters.map(character => convertChinese(character, language)).filter(character => character && hasHan(character));
 				if (translated.length > 0) {
 					item.character = translated.join(" / ");
 					continue;
@@ -227,7 +223,8 @@ export async function applyCharacterTranslation(request, body, options = {}) {
 	if (typeof fetcher !== "function" || !cacheStore) return body;
 	const apiKeyProvider = options.apiKeyProvider ?? createTmdbApiKeyProvider({ env: options.env, storage: options.storage, now: options.now });
 	const apiKey = await apiKeyProvider.get();
-	const entry = (await cacheStore.getWithFields(route.mediaType, route.mediaId, ["imdbId", "doubanId", "characters", "originCountries", "aliases", "title", "year"], options.now)) ?? {};
+	const entry =
+		(await cacheStore.getWithFields(route.mediaType, route.mediaId, ["imdbId", "doubanId", "characters", "originCountries", "aliases", "title", "year"], options.now)) ?? {};
 	try {
 		const imdbId = await resolveImdbId(route, body, request, fetcher, entry, apiKey);
 		const { title: fallbackTitle, year: fallbackYear, originCountries } = await resolveFallbackInfo(route, body, request, fetcher, entry, apiKey);

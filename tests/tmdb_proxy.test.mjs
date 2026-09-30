@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import app from "../src/Hono.js";
 import { pickChineseAlias } from "../src/tmdb/aliases.mjs";
-import { CACHE_MAX_BYTES, CACHE_NEGATIVE_TTL_MS, CACHE_FULL_TTL_MS, CACHE_TTL_MS, createEmptyCache, normalizeCache, setCacheEntry, writeCache } from "../src/tmdb/cache.mjs";
+import { CACHE_FULL_TTL_MS, CACHE_NEGATIVE_TTL_MS, CACHE_TTL_MS, createEmptyCache, normalizeCache, setCacheEntry, writeCache } from "../src/tmdb/cache.mjs";
 import { parseRuntimeArgument, resolveProxyConfig } from "../src/tmdb/config.mjs";
 import { GENRE_NAMES } from "../src/tmdb/genres.mjs";
 import { applyTmdbRequestRules, applyTmdbResponseRules, fetchTmdbWithNativeFetch, STATE_HEADER } from "../src/tmdb/proxy.mjs";
-import { isForwardHost, isTmdbHost, isTmdbImageHost } from "../src/tmdb/routes.mjs";
+import { isForwardHost, isTmdbApiOriginHost, isTmdbHost, isTmdbImageHost, isTmdbImageOriginHost } from "../src/tmdb/routes.mjs";
 
 // 测试用 API Key：反代场景由后端环境变量提供，脚本场景由缓存后端下发。
 // Test API keys: the backend env provides the key for reverse proxies, the cache backend serves it for scripts.
@@ -19,10 +19,18 @@ let remoteApiKey = TEST_API_KEY;
 // Intercepts cache backend HTTP requests, returns empty results to avoid real network calls in tests.
 const originalFetch = globalThis.fetch;
 globalThis.fetch = async (resource, init) => {
-	const url = typeof resource === "string" ? resource : resource?.url ?? "";
-	if (url.includes("/cache/get")) return new Response(JSON.stringify({ movie: {}, tv: {} }), { status: 200, headers: { "content-type": "application/json" } });
+	const url = typeof resource === "string" ? resource : (resource?.url ?? "");
+	if (url.includes("/cache/get"))
+		return new Response(JSON.stringify({ movie: {}, tv: {} }), {
+			status: 200,
+			headers: { "content-type": "application/json" },
+		});
 	if (url.includes("/cache/set")) return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "content-type": "application/json" } });
-	if (url.endsWith("/key")) return new Response(JSON.stringify({ apiKey: remoteApiKey }), { status: 200, headers: { "content-type": "application/json" } });
+	if (url.endsWith("/key"))
+		return new Response(JSON.stringify({ apiKey: remoteApiKey }), {
+			status: 200,
+			headers: { "content-type": "application/json" },
+		});
 	return originalFetch(resource, init);
 };
 
@@ -68,7 +76,11 @@ test("未配置环境变量时不注入 api_key，客户端需自带凭证", asy
 });
 
 test("已有 api_key 时不会覆盖客户端参数", async () => {
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?api_key=client-key&language=zh-CN", headers: {} };
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/movie/550?api_key=client-key&language=zh-CN",
+		headers: {},
+	};
 	await applyTmdbRequestRules(request, { argument: { aliasFallback: true } });
 	assert.equal(new URL(request.url).searchParams.get("api_key"), "client-key");
 });
@@ -83,14 +95,22 @@ test("vidora TMDB 域名参与代理规则", async () => {
 
 test("开启 imageWebp 时为 TMDB 图片请求注入 Accept: image/webp", async () => {
 	assert.equal(isTmdbImageHost("image.tmdb.org"), true);
-	const request = { method: "GET", url: "https://image.tmdb.org/t/p/original/ySVFNbEAOWJgo5TVYk6MeIfTU34.jpg", headers: {} };
+	const request = {
+		method: "GET",
+		url: "https://image.tmdb.org/t/p/original/ySVFNbEAOWJgo5TVYk6MeIfTU34.jpg",
+		headers: {},
+	};
 	await applyTmdbRequestRules(request, { argument: { imageWebp: true } });
 	assert.equal(request.headers.Accept, "image/webp,*/*");
 	assert.equal(request.url, "https://image.tmdb.org/t/p/original/ySVFNbEAOWJgo5TVYk6MeIfTU34.jpg");
 });
 
 test("关闭 imageWebp 时不注入 Accept 头", async () => {
-	const request = { method: "GET", url: "https://image.tmdb.org/t/p/original/ySVFNbEAOWJgo5TVYk6MeIfTU34.jpg", headers: {} };
+	const request = {
+		method: "GET",
+		url: "https://image.tmdb.org/t/p/original/ySVFNbEAOWJgo5TVYk6MeIfTU34.jpg",
+		headers: {},
+	};
 	await applyTmdbRequestRules(request, { argument: { imageWebp: false } });
 	assert.equal(request.headers.Accept, undefined);
 });
@@ -125,12 +145,20 @@ test("追加 alternative_titles 时保留详情请求已有的查询参数", asy
 });
 
 test("客户端已请求 alternative_titles 时响应保留该字段", async () => {
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=alternative_titles", headers: {} };
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=alternative_titles",
+		headers: {},
+	};
 	await applyTmdbRequestRules(request, { argument: { aliasFallback: true } });
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
-		body: JSON.stringify({ title: "Fight Club", overview: "English", alternative_titles: { titles: [{ iso_3166_1: "CN", title: "搏击俱乐部" }] } }),
+		body: JSON.stringify({
+			title: "Fight Club",
+			overview: "English",
+			alternative_titles: { titles: [{ iso_3166_1: "CN", title: "搏击俱乐部" }] },
+		}),
 	};
 	await applyTmdbResponseRules(request, response, { argument: { aliasFallback: true } });
 	const body = JSON.parse(response.body);
@@ -144,7 +172,11 @@ test("代理自动追加 alternative_titles 时响应移除该字段", async () 
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json", "content-length": "99" },
-		body: JSON.stringify({ name: "Game of Thrones", overview: "English", alternative_titles: { results: [{ iso_3166_1: "CN", title: "权力的游戏" }] } }),
+		body: JSON.stringify({
+			name: "Game of Thrones",
+			overview: "English",
+			alternative_titles: { results: [{ iso_3166_1: "CN", title: "权力的游戏" }] },
+		}),
 	};
 	await applyTmdbResponseRules(request, response, { argument: { aliasFallback: true } });
 	const body = JSON.parse(response.body);
@@ -156,12 +188,24 @@ test("代理自动追加 alternative_titles 时响应移除该字段", async () 
 
 test("详情响应有中文别名时写入别名缓存供列表复用", async () => {
 	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=alternative_titles", headers: {} };
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=alternative_titles",
+		headers: {},
+	};
 	await applyTmdbRequestRules(request, { argument: { aliasFallback: true } });
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
-		body: JSON.stringify({ title: "Fight Club", alternative_titles: { titles: [{ iso_3166_1: "CN", title: "搏击俱乐部" }, { iso_3166_1: "TW", title: "鬥陣俱樂部" }] } }),
+		body: JSON.stringify({
+			title: "Fight Club",
+			alternative_titles: {
+				titles: [
+					{ iso_3166_1: "CN", title: "搏击俱乐部" },
+					{ iso_3166_1: "TW", title: "鬥陣俱樂部" },
+				],
+			},
+		}),
 	};
 	await applyTmdbResponseRules(request, response, { argument: { aliasFallback: true }, storage });
 	const cache = storage.store.dj_tmdb_proxy_cache;
@@ -171,12 +215,19 @@ test("详情响应有中文别名时写入别名缓存供列表复用", async ()
 test("详情响应无中文别名但有详情字段时写入正常缓存", async () => {
 	const now = 1_700_000_000_000;
 	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=alternative_titles", headers: {} };
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=alternative_titles",
+		headers: {},
+	};
 	await applyTmdbRequestRules(request, { argument: { aliasFallback: true } });
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
-		body: JSON.stringify({ title: "Fight Club", alternative_titles: { titles: [{ iso_3166_1: "US", title: "Fight Club" }] } }),
+		body: JSON.stringify({
+			title: "Fight Club",
+			alternative_titles: { titles: [{ iso_3166_1: "US", title: "Fight Club" }] },
+		}),
 	};
 	await applyTmdbResponseRules(request, response, { argument: { aliasFallback: true }, storage, now });
 	const entry = storage.store.dj_tmdb_proxy_cache.stores.movie["550"];
@@ -187,7 +238,11 @@ test("详情响应无中文别名但有详情字段时写入正常缓存", async
 });
 
 test("中文 collection 详情追加 translations 并回填中文名称", async () => {
-	const request = { method: "GET", url: "https://api.tmdb.org/3/collection/531241?api_key=client-key&language=zh-CN", headers: {} };
+	const request = {
+		method: "GET",
+		url: "https://api.tmdb.org/3/collection/531241?api_key=client-key&language=zh-CN",
+		headers: {},
+	};
 	await applyTmdbRequestRules(request, { argument: { aliasFallback: true } });
 	const requestUrl = new URL(request.url);
 	assert.equal(requestUrl.searchParams.get("api_key"), "client-key");
@@ -232,7 +287,11 @@ test("collection parts 中的电影也会补全中文片名", async () => {
 		argument: { aliasFallback: true },
 		fetcher: async aliasRequest => {
 			fetched.push(aliasRequest.url);
-			return { ok: true, status: 200, body: JSON.stringify({ alternative_titles: { titles: [{ iso_3166_1: "CN", title: "蜘蛛侠：英雄无归" }] } }) };
+			return {
+				ok: true,
+				status: 200,
+				body: JSON.stringify({ alternative_titles: { titles: [{ iso_3166_1: "CN", title: "蜘蛛侠：英雄无归" }] } }),
+			};
 		},
 	});
 	assert.deepEqual(fetched, ["https://api.tmdb.org/3/movie/634649?api_key=client-key&language=zh-CN&append_to_response=alternative_titles%2Cexternal_ids"]);
@@ -253,13 +312,21 @@ test("aggregateCredits 优先改写剧集与季 credits", async () => {
 	await applyTmdbRequestRules(series, { argument: { aggregateCredits: true } });
 	assert.equal(new URL(series.url).pathname, "/3/tv/1399/aggregate_credits");
 
-	const season = { method: "GET", url: "https://api.themoviedb.org/3/tv/1399/season/1/credits?language=zh-CN", headers: {} };
+	const season = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/tv/1399/season/1/credits?language=zh-CN",
+		headers: {},
+	};
 	await applyTmdbRequestRules(season, { argument: { aggregateCredits: true } });
 	assert.equal(new URL(season.url).pathname, "/3/tv/1399/season/1/aggregate_credits");
 });
 
 test("TV append_to_response 中的 credits 改为 aggregate_credits 并兼容响应字段", async () => {
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/tv/1399?language=zh-CN&append_to_response=credits,images", headers: {} };
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/tv/1399?language=zh-CN&append_to_response=credits,images",
+		headers: {},
+	};
 	await applyTmdbRequestRules(request, { argument: { aggregateCredits: true, aliasFallback: false } });
 	const url = new URL(request.url);
 	assert.equal(url.searchParams.get("append_to_response"), "aggregate_credits,images,alternative_titles,external_ids");
@@ -282,7 +349,11 @@ test("TV append_to_response 中的 credits 改为 aggregate_credits 并兼容响
 });
 
 test("TV append_to_response 已包含 aggregate_credits 时保留原字段", async () => {
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/tv/1399?append_to_response=credits,aggregate_credits", headers: {} };
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/tv/1399?append_to_response=credits,aggregate_credits",
+		headers: {},
+	};
 	await applyTmdbRequestRules(request, { argument: { aggregateCredits: true } });
 	assert.equal(new URL(request.url).searchParams.get("append_to_response"), "aggregate_credits");
 
@@ -298,7 +369,11 @@ test("TV append_to_response 已包含 aggregate_credits 时保留原字段", asy
 });
 
 test("关闭 aggregateCredits 时不改写 TV append_to_response credits", async () => {
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/tv/1399?append_to_response=credits", headers: {} };
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/tv/1399?append_to_response=credits",
+		headers: {},
+	};
 	await applyTmdbRequestRules(request, { argument: { aggregateCredits: false } });
 	assert.equal(new URL(request.url).searchParams.get("append_to_response"), "credits");
 });
@@ -345,12 +420,48 @@ test("aggregate_credits 导演超过 3 个时按集数保留前 3", async () => 
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({
 			crew: [
-				{ id: 10, name: "导演A", profile_path: "/a.jpg", jobs: [{ job: "Director", episode_count: 2 }], total_episode_count: 2 },
-				{ id: 11, name: "导演B", profile_path: "/b.jpg", jobs: [{ job: "Director", episode_count: 8 }], total_episode_count: 8 },
-				{ id: 12, name: "导演C", profile_path: "/c.jpg", jobs: [{ job: "Director", episode_count: 5 }], total_episode_count: 5 },
-				{ id: 13, name: "导演D", profile_path: "/d.jpg", jobs: [{ job: "Director", episode_count: 1 }], total_episode_count: 1 },
-				{ id: 14, name: "导演E", profile_path: "/e.jpg", jobs: [{ job: "Director", episode_count: 3 }], total_episode_count: 3 },
-				{ id: 15, name: "编剧X", profile_path: "/x.jpg", jobs: [{ job: "Writer", episode_count: 10 }], total_episode_count: 10 },
+				{
+					id: 10,
+					name: "导演A",
+					profile_path: "/a.jpg",
+					jobs: [{ job: "Director", episode_count: 2 }],
+					total_episode_count: 2,
+				},
+				{
+					id: 11,
+					name: "导演B",
+					profile_path: "/b.jpg",
+					jobs: [{ job: "Director", episode_count: 8 }],
+					total_episode_count: 8,
+				},
+				{
+					id: 12,
+					name: "导演C",
+					profile_path: "/c.jpg",
+					jobs: [{ job: "Director", episode_count: 5 }],
+					total_episode_count: 5,
+				},
+				{
+					id: 13,
+					name: "导演D",
+					profile_path: "/d.jpg",
+					jobs: [{ job: "Director", episode_count: 1 }],
+					total_episode_count: 1,
+				},
+				{
+					id: 14,
+					name: "导演E",
+					profile_path: "/e.jpg",
+					jobs: [{ job: "Director", episode_count: 3 }],
+					total_episode_count: 3,
+				},
+				{
+					id: 15,
+					name: "编剧X",
+					profile_path: "/x.jpg",
+					jobs: [{ job: "Writer", episode_count: 10 }],
+					total_episode_count: 10,
+				},
 			],
 		}),
 	};
@@ -371,8 +482,20 @@ test("aggregate_credits 导演不超过 2 个时全部保留", async () => {
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({
 			crew: [
-				{ id: 10, name: "导演A", profile_path: "/a.jpg", jobs: [{ job: "Director", episode_count: 2 }], total_episode_count: 2 },
-				{ id: 11, name: "导演B", profile_path: "/b.jpg", jobs: [{ job: "Director", episode_count: 8 }], total_episode_count: 8 },
+				{
+					id: 10,
+					name: "导演A",
+					profile_path: "/a.jpg",
+					jobs: [{ job: "Director", episode_count: 2 }],
+					total_episode_count: 2,
+				},
+				{
+					id: 11,
+					name: "导演B",
+					profile_path: "/b.jpg",
+					jobs: [{ job: "Director", episode_count: 8 }],
+					total_episode_count: 8,
+				},
 			],
 		}),
 	};
@@ -390,11 +513,41 @@ test("aggregate_credits 前 2 导演过滤掉无头像的，至少保留一个",
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({
 			crew: [
-				{ id: 10, name: "导演A", profile_path: null, jobs: [{ job: "Director", episode_count: 9 }], total_episode_count: 9 },
-				{ id: 11, name: "导演B", profile_path: "/b.jpg", jobs: [{ job: "Director", episode_count: 8 }], total_episode_count: 8 },
-				{ id: 12, name: "导演C", profile_path: null, jobs: [{ job: "Director", episode_count: 5 }], total_episode_count: 5 },
-				{ id: 13, name: "导演D", profile_path: "/d.jpg", jobs: [{ job: "Director", episode_count: 4 }], total_episode_count: 4 },
-				{ id: 14, name: "导演E", profile_path: "/e.jpg", jobs: [{ job: "Director", episode_count: 3 }], total_episode_count: 3 },
+				{
+					id: 10,
+					name: "导演A",
+					profile_path: null,
+					jobs: [{ job: "Director", episode_count: 9 }],
+					total_episode_count: 9,
+				},
+				{
+					id: 11,
+					name: "导演B",
+					profile_path: "/b.jpg",
+					jobs: [{ job: "Director", episode_count: 8 }],
+					total_episode_count: 8,
+				},
+				{
+					id: 12,
+					name: "导演C",
+					profile_path: null,
+					jobs: [{ job: "Director", episode_count: 5 }],
+					total_episode_count: 5,
+				},
+				{
+					id: 13,
+					name: "导演D",
+					profile_path: "/d.jpg",
+					jobs: [{ job: "Director", episode_count: 4 }],
+					total_episode_count: 4,
+				},
+				{
+					id: 14,
+					name: "导演E",
+					profile_path: "/e.jpg",
+					jobs: [{ job: "Director", episode_count: 3 }],
+					total_episode_count: 3,
+				},
 			],
 		}),
 	};
@@ -403,7 +556,10 @@ test("aggregate_credits 前 2 导演过滤掉无头像的，至少保留一个",
 	const directors = body.crew.filter(c => c.job === "Director");
 	// 前 2 为 A(9,无头像)、B(8,有头像)，过滤后仅保留 B
 	// Top 2 are A(9,no photo), B(8,photo); after filtering only B remains
-	assert.deepEqual(directors.map(c => c.name), ["导演B"]);
+	assert.deepEqual(
+		directors.map(c => c.name),
+		["导演B"],
+	);
 });
 
 test("aggregate_credits 前 2 导演全无头像时回退保留集数最多的", async () => {
@@ -414,10 +570,34 @@ test("aggregate_credits 前 2 导演全无头像时回退保留集数最多的",
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({
 			crew: [
-				{ id: 10, name: "导演A", profile_path: null, jobs: [{ job: "Director", episode_count: 9 }], total_episode_count: 9 },
-				{ id: 11, name: "导演B", profile_path: null, jobs: [{ job: "Director", episode_count: 8 }], total_episode_count: 8 },
-				{ id: 12, name: "导演C", profile_path: null, jobs: [{ job: "Director", episode_count: 5 }], total_episode_count: 5 },
-				{ id: 13, name: "导演D", profile_path: "/d.jpg", jobs: [{ job: "Director", episode_count: 4 }], total_episode_count: 4 },
+				{
+					id: 10,
+					name: "导演A",
+					profile_path: null,
+					jobs: [{ job: "Director", episode_count: 9 }],
+					total_episode_count: 9,
+				},
+				{
+					id: 11,
+					name: "导演B",
+					profile_path: null,
+					jobs: [{ job: "Director", episode_count: 8 }],
+					total_episode_count: 8,
+				},
+				{
+					id: 12,
+					name: "导演C",
+					profile_path: null,
+					jobs: [{ job: "Director", episode_count: 5 }],
+					total_episode_count: 5,
+				},
+				{
+					id: 13,
+					name: "导演D",
+					profile_path: "/d.jpg",
+					jobs: [{ job: "Director", episode_count: 4 }],
+					total_episode_count: 4,
+				},
 			],
 		}),
 	};
@@ -426,7 +606,10 @@ test("aggregate_credits 前 2 导演全无头像时回退保留集数最多的",
 	const directors = body.crew.filter(c => c.job === "Director");
 	// 前 2 全无头像，回退保留集数最多的导演A
 	// Top 2 all lack photos, fall back to director A with most episodes
-	assert.deepEqual(directors.map(c => c.name), ["导演A"]);
+	assert.deepEqual(
+		directors.map(c => c.name),
+		["导演A"],
+	);
 });
 
 test("aggregate_credits 同一人员多职位时展开为独立条目", async () => {
@@ -448,7 +631,13 @@ test("aggregate_credits 同一人员多职位时展开为独立条目", async ()
 					],
 					total_episode_count: 10,
 				},
-				{ id: 21, name: "编剧B", department: "Writing", jobs: [{ credit_id: "c4", job: "Writer", episode_count: 8 }], total_episode_count: 8 },
+				{
+					id: 21,
+					name: "编剧B",
+					department: "Writing",
+					jobs: [{ credit_id: "c4", job: "Writer", episode_count: 8 }],
+					total_episode_count: 8,
+				},
 			],
 		}),
 	};
@@ -463,7 +652,10 @@ test("aggregate_credits 同一人员多职位时展开为独立条目", async ()
 	assert.equal(coDirectors.length, 1);
 	assert.equal(coDirectors[0].credit_id, "c2");
 	assert.equal(writers.length, 2);
-	assert.deepEqual(writers.map(c => c.name), ["导演兼编剧", "编剧B"]);
+	assert.deepEqual(
+		writers.map(c => c.name),
+		["导演兼编剧", "编剧B"],
+	);
 });
 
 test("用户直接请求 aggregate_credits 时不改写其响应结构", async () => {
@@ -492,8 +684,22 @@ test("关闭 aggregateCredits 时保持原始 credits", async () => {
 });
 
 test("配置解析支持对象、逗号串和查询覆盖", () => {
-	assert.deepEqual(parseRuntimeArgument("false,true"), { aliasFallback: "false", characterTranslation: "true", aggregateCredits: undefined, imageWebp: undefined, cacheBackend: undefined });
-	assert.deepEqual(parseRuntimeArgument({ "false,true": "" }), { aliasFallback: "false", characterTranslation: "true", aggregateCredits: undefined, imageWebp: undefined, cacheBackend: undefined });
+	assert.deepEqual(parseRuntimeArgument("false,true"), {
+		aliasFallback: "false",
+		characterTranslation: "true",
+		aggregateCredits: undefined,
+		imageWebp: undefined,
+		cacheBackend: undefined,
+		tmdbProxy: undefined,
+	});
+	assert.deepEqual(parseRuntimeArgument({ "false,true": "" }), {
+		aliasFallback: "false",
+		characterTranslation: "true",
+		aggregateCredits: undefined,
+		imageWebp: undefined,
+		cacheBackend: undefined,
+		tmdbProxy: undefined,
+	});
 	const url = new URL("https://api.themoviedb.org/3/movie/1?proxy.aggregateCredits=0&language=zh-CN");
 	const config = resolveProxyConfig({ argument: { aggregateCredits: true }, env: {}, url });
 	assert.equal(config.aggregateCredits, false);
@@ -501,7 +707,11 @@ test("配置解析支持对象、逗号串和查询覆盖", () => {
 });
 
 test("返回 results 的电影列表也会按条目补全中文片名", async () => {
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/popular?language=zh-CN", headers: { Authorization: "Bearer token", [STATE_HEADER]: "internal" } };
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/movie/popular?language=zh-CN",
+		headers: { Authorization: "Bearer token", [STATE_HEADER]: "internal" },
+	};
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -518,7 +728,11 @@ test("返回 results 的电影列表也会按条目补全中文片名", async ()
 		env: TEST_ENV,
 		fetcher: async aliasRequest => {
 			fetched.push(aliasRequest);
-			return { ok: true, status: 200, body: JSON.stringify({ alternative_titles: { titles: [{ iso_3166_1: "CN", title: "搏击俱乐部" }] } }) };
+			return {
+				ok: true,
+				status: 200,
+				body: JSON.stringify({ alternative_titles: { titles: [{ iso_3166_1: "CN", title: "搏击俱乐部" }] } }),
+			};
 		},
 	});
 	assert.equal(fetched.length, 1);
@@ -532,7 +746,11 @@ test("返回 results 的电影列表也会按条目补全中文片名", async ()
 });
 
 test("混合搜索列表会按 media_type 分别补全 movie title 和 tv name", async () => {
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/search/multi?language=zh-TW&query=test", headers: {} };
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/search/multi?language=zh-TW&query=test",
+		headers: {},
+	};
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -547,8 +765,17 @@ test("混合搜索列表会按 media_type 分别补全 movie title 和 tv name",
 		argument: { aliasFallback: true },
 		fetcher: async aliasRequest => {
 			const url = new URL(aliasRequest.url);
-			if (url.pathname.includes("/movie/")) return { ok: true, status: 200, body: JSON.stringify({ alternative_titles: { titles: [{ iso_3166_1: "CN", title: "搏击俱乐部" }] } }) };
-			return { ok: true, status: 200, body: JSON.stringify({ alternative_titles: { results: [{ iso_3166_1: "CN", title: "权力的游戏" }] } }) };
+			if (url.pathname.includes("/movie/"))
+				return {
+					ok: true,
+					status: 200,
+					body: JSON.stringify({ alternative_titles: { titles: [{ iso_3166_1: "CN", title: "搏击俱乐部" }] } }),
+				};
+			return {
+				ok: true,
+				status: 200,
+				body: JSON.stringify({ alternative_titles: { results: [{ iso_3166_1: "CN", title: "权力的游戏" }] } }),
+			};
 		},
 	});
 	const body = JSON.parse(response.body);
@@ -557,7 +784,11 @@ test("混合搜索列表会按 media_type 分别补全 movie title 和 tv name",
 });
 
 test("混合搜索中的 person 条目不会按 tv name 误补全", async () => {
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/search/multi?language=zh-CN&query=test", headers: {} };
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/search/multi?language=zh-CN&query=test",
+		headers: {},
+	};
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -574,7 +805,11 @@ test("混合搜索中的 person 条目不会按 tv name 误补全", async () => 
 		env: TEST_ENV,
 		fetcher: async aliasRequest => {
 			fetched.push(aliasRequest.url);
-			return { ok: true, status: 200, body: JSON.stringify({ alternative_titles: { results: [{ iso_3166_1: "CN", title: "权力的游戏" }] } }) };
+			return {
+				ok: true,
+				status: 200,
+				body: JSON.stringify({ alternative_titles: { results: [{ iso_3166_1: "CN", title: "权力的游戏" }] } }),
+			};
 		},
 	});
 	const body = JSON.parse(response.body);
@@ -585,7 +820,11 @@ test("混合搜索中的 person 条目不会按 tv name 误补全", async () => 
 
 test("非中文列表请求不会为条目额外请求别名", async () => {
 	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/popular?language=en-US", headers: {} };
-	const response = { status: 200, headers: { "content-type": "application/json" }, body: JSON.stringify({ results: [{ id: 550, title: "Fight Club" }] }) };
+	const response = {
+		status: 200,
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ results: [{ id: 550, title: "Fight Club" }] }),
+	};
 	let fetchCount = 0;
 	await applyTmdbResponseRules(request, response, {
 		argument: { aliasFallback: true },
@@ -599,7 +838,11 @@ test("非中文列表请求不会为条目额外请求别名", async () => {
 });
 
 test("recommendations 列表使用 zh-Hans-CN 也会补全中文片名（script+region 语言码修复）", async () => {
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/969681/recommendations?api_key=client-key&language=zh-Hans-CN", headers: {} };
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/movie/969681/recommendations?api_key=client-key&language=zh-Hans-CN",
+		headers: {},
+	};
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -616,7 +859,11 @@ test("recommendations 列表使用 zh-Hans-CN 也会补全中文片名（script+
 		argument: { aliasFallback: true },
 		fetcher: async aliasRequest => {
 			fetched.push(aliasRequest.url);
-			return { ok: true, status: 200, body: JSON.stringify({ alternative_titles: { titles: [{ iso_3166_1: "CN", title: "蜘蛛侠：英雄无归" }] } }) };
+			return {
+				ok: true,
+				status: 200,
+				body: JSON.stringify({ alternative_titles: { titles: [{ iso_3166_1: "CN", title: "蜘蛛侠：英雄无归" }] } }),
+			};
 		},
 	});
 	assert.equal(fetched.length, 1);
@@ -632,7 +879,9 @@ test("列表中文补全默认允许 10 个别名请求并发", async () => {
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
-		body: JSON.stringify({ results: Array.from({ length: 10 }, (_item, index) => ({ id: index + 1, title: `Movie ${index + 1}` })) }),
+		body: JSON.stringify({
+			results: Array.from({ length: 10 }, (_item, index) => ({ id: index + 1, title: `Movie ${index + 1}` })),
+		}),
 	};
 	let active = 0;
 	let maxActive = 0;
@@ -643,7 +892,11 @@ test("列表中文补全默认允许 10 个别名请求并发", async () => {
 			maxActive = Math.max(maxActive, active);
 			await new Promise(resolve => setTimeout(resolve, 1));
 			active -= 1;
-			return { ok: true, status: 200, body: JSON.stringify({ alternative_titles: { titles: [{ iso_3166_1: "CN", title: "中文片名" }] } }) };
+			return {
+				ok: true,
+				status: 200,
+				body: JSON.stringify({ alternative_titles: { titles: [{ iso_3166_1: "CN", title: "中文片名" }] } }),
+			};
 		},
 	});
 	assert.equal(maxActive, 10);
@@ -677,7 +930,12 @@ test("列表别名缓存按 movie/tv 分层并保存四个区域", async () => {
 	});
 	const cache = storage.store.dj_tmdb_proxy_cache;
 	assert.equal(JSON.parse(response.body).results[0].title, "鬥陣俱樂部");
-	assert.deepEqual(cache.stores.movie["550"].aliases, { CN: "搏击俱乐部", SG: "搏击俱乐部", TW: "鬥陣俱樂部", HK: "搏擊會" });
+	assert.deepEqual(cache.stores.movie["550"].aliases, {
+		CN: "搏击俱乐部",
+		SG: "搏击俱乐部",
+		TW: "鬥陣俱樂部",
+		HK: "搏擊會",
+	});
 	assert.equal(cache.stores.tv["550"], undefined);
 });
 
@@ -689,11 +947,19 @@ test("TV 别名缓存写入 stores.tv 且不覆盖同 ID movie", async () => {
 		},
 	});
 	const request = { method: "GET", url: "https://api.themoviedb.org/3/tv/popular?language=zh-HK", headers: {} };
-	const response = { status: 200, headers: { "content-type": "application/json" }, body: JSON.stringify({ results: [{ id: 1399, name: "Game of Thrones" }] }) };
+	const response = {
+		status: 200,
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ results: [{ id: 1399, name: "Game of Thrones" }] }),
+	};
 	await applyTmdbResponseRules(request, response, {
 		argument: { aliasFallback: true },
 		storage,
-		fetcher: async () => ({ ok: true, status: 200, body: JSON.stringify({ alternative_titles: { results: [{ iso_3166_1: "TW", title: "權力的遊戲" }] } }) }),
+		fetcher: async () => ({
+			ok: true,
+			status: 200,
+			body: JSON.stringify({ alternative_titles: { results: [{ iso_3166_1: "TW", title: "權力的遊戲" }] } }),
+		}),
 	});
 	const cache = storage.store.dj_tmdb_proxy_cache;
 	assert.equal(cache.stores.movie["1399"].aliases.CN, "电影名");
@@ -707,13 +973,19 @@ test("列表别名缓存命中时按语言选择区域且不请求 TMDB", async 
 		dj_tmdb_proxy_cache: {
 			version: 2,
 			stores: {
-				movie: { 550: { aliases: { CN: "搏击俱乐部", TW: "鬥陣俱樂部" }, createdAt: now, expiresAt: now + CACHE_TTL_MS } },
+				movie: {
+					550: { aliases: { CN: "搏击俱乐部", TW: "鬥陣俱樂部" }, createdAt: now, expiresAt: now + CACHE_TTL_MS },
+				},
 				tv: {},
 			},
 		},
 	});
 	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/popular?language=zh-TW", headers: {} };
-	const response = { status: 200, headers: { "content-type": "application/json" }, body: JSON.stringify({ results: [{ id: 550, title: "Fight Club" }] }) };
+	const response = {
+		status: 200,
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ results: [{ id: 550, title: "Fight Club" }] }),
+	};
 	let fetchCount = 0;
 	await applyTmdbResponseRules(request, response, {
 		argument: { aliasFallback: true },
@@ -749,12 +1021,20 @@ test("过期缓存会重新请求并保留原 createdAt", async () => {
 		},
 	});
 	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/popular?language=zh-CN", headers: {} };
-	const response = { status: 200, headers: { "content-type": "application/json" }, body: JSON.stringify({ results: [{ id: 550, title: "Fight Club" }] }) };
+	const response = {
+		status: 200,
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ results: [{ id: 550, title: "Fight Club" }] }),
+	};
 	await applyTmdbResponseRules(request, response, {
 		argument: { aliasFallback: true },
 		storage,
 		now,
-		fetcher: async () => ({ ok: true, status: 200, body: JSON.stringify({ alternative_titles: { titles: [{ iso_3166_1: "CN", title: "搏击俱乐部" }] } }) }),
+		fetcher: async () => ({
+			ok: true,
+			status: 200,
+			body: JSON.stringify({ alternative_titles: { titles: [{ iso_3166_1: "CN", title: "搏击俱乐部" }] } }),
+		}),
 	});
 	const entry = storage.store.dj_tmdb_proxy_cache.stores.movie["550"];
 	assert.equal(entry.aliases.CN, "搏击俱乐部");
@@ -764,12 +1044,27 @@ test("过期缓存会重新请求并保留原 createdAt", async () => {
 
 test("非中文或请求失败时不写缓存", async () => {
 	for (const [language, aliasResponse] of [
-		["en-US", { ok: true, status: 200, body: JSON.stringify({ alternative_titles: { titles: [{ iso_3166_1: "CN", title: "搏击俱乐部" }] } }) }],
+		[
+			"en-US",
+			{
+				ok: true,
+				status: 200,
+				body: JSON.stringify({ alternative_titles: { titles: [{ iso_3166_1: "CN", title: "搏击俱乐部" }] } }),
+			},
+		],
 		["zh-CN", { ok: false, status: 500, body: "{}" }],
 	]) {
 		const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
-		const request = { method: "GET", url: `https://api.themoviedb.org/3/movie/popular?language=${language}`, headers: {} };
-		const response = { status: 200, headers: { "content-type": "application/json" }, body: JSON.stringify({ results: [{ id: 550, title: "Fight Club" }] }) };
+		const request = {
+			method: "GET",
+			url: `https://api.themoviedb.org/3/movie/popular?language=${language}`,
+			headers: {},
+		};
+		const response = {
+			status: 200,
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ results: [{ id: 550, title: "Fight Club" }] }),
+		};
 		await applyTmdbResponseRules(request, response, {
 			argument: { aliasFallback: true },
 			storage,
@@ -783,12 +1078,20 @@ test("列表请求成功但无中文别名时写负缓存", async () => {
 	const now = 1_700_000_000_000;
 	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
 	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/popular?language=zh-CN", headers: {} };
-	const response = { status: 200, headers: { "content-type": "application/json" }, body: JSON.stringify({ results: [{ id: 550, title: "Fight Club" }] }) };
+	const response = {
+		status: 200,
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ results: [{ id: 550, title: "Fight Club" }] }),
+	};
 	await applyTmdbResponseRules(request, response, {
 		argument: { aliasFallback: true },
 		storage,
 		now,
-		fetcher: async () => ({ ok: true, status: 200, body: JSON.stringify({ alternative_titles: { titles: [{ iso_3166_1: "US", title: "Fight Club" }] } }) }),
+		fetcher: async () => ({
+			ok: true,
+			status: 200,
+			body: JSON.stringify({ alternative_titles: { titles: [{ iso_3166_1: "US", title: "Fight Club" }] } }),
+		}),
 	});
 	const entry = storage.store.dj_tmdb_proxy_cache.stores.movie["550"];
 	assert.ok(entry);
@@ -805,7 +1108,11 @@ test("负缓存命中时列表不重复请求", async () => {
 		},
 	});
 	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/popular?language=zh-CN", headers: {} };
-	const response = { status: 200, headers: { "content-type": "application/json" }, body: JSON.stringify({ results: [{ id: 550, title: "Fight Club" }] }) };
+	const response = {
+		status: 200,
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ results: [{ id: 550, title: "Fight Club" }] }),
+	};
 	let fetchCount = 0;
 	await applyTmdbResponseRules(request, response, {
 		argument: { aliasFallback: true },
@@ -813,7 +1120,11 @@ test("负缓存命中时列表不重复请求", async () => {
 		now,
 		fetcher: async () => {
 			fetchCount += 1;
-			return { ok: true, status: 200, body: JSON.stringify({ alternative_titles: { titles: [{ iso_3166_1: "CN", title: "搏击俱乐部" }] } }) };
+			return {
+				ok: true,
+				status: 200,
+				body: JSON.stringify({ alternative_titles: { titles: [{ iso_3166_1: "CN", title: "搏击俱乐部" }] } }),
+			};
 		},
 	});
 	assert.equal(fetchCount, 0);
@@ -829,7 +1140,11 @@ test("负缓存过期后重新请求", async () => {
 		},
 	});
 	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/popular?language=zh-CN", headers: {} };
-	const response = { status: 200, headers: { "content-type": "application/json" }, body: JSON.stringify({ results: [{ id: 550, title: "Fight Club" }] }) };
+	const response = {
+		status: 200,
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ results: [{ id: 550, title: "Fight Club" }] }),
+	};
 	let fetchCount = 0;
 	await applyTmdbResponseRules(request, response, {
 		argument: { aliasFallback: true },
@@ -837,7 +1152,11 @@ test("负缓存过期后重新请求", async () => {
 		now,
 		fetcher: async () => {
 			fetchCount += 1;
-			return { ok: true, status: 200, body: JSON.stringify({ alternative_titles: { titles: [{ iso_3166_1: "CN", title: "搏击俱乐部" }] } }) };
+			return {
+				ok: true,
+				status: 200,
+				body: JSON.stringify({ alternative_titles: { titles: [{ iso_3166_1: "CN", title: "搏击俱乐部" }] } }),
+			};
 		},
 	});
 	const entry = storage.store.dj_tmdb_proxy_cache.stores.movie["550"];
@@ -852,16 +1171,32 @@ test("Hono 将 Vercel API 路径映射到 TMDB，并保留代理处理结果", a
 	let upstreamRequest;
 	globalThis.fetch = async (url, init) => {
 		const urlStr = String(url);
-		if (urlStr.includes("/cache/get")) return new Response(JSON.stringify({ movie: {}, tv: {} }), { status: 200, headers: { "content-type": "application/json" } });
-		if (urlStr.includes("/cache/set")) return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "content-type": "application/json" } });
+		if (urlStr.includes("/cache/get"))
+			return new Response(JSON.stringify({ movie: {}, tv: {} }), {
+				status: 200,
+				headers: { "content-type": "application/json" },
+			});
+		if (urlStr.includes("/cache/set"))
+			return new Response(JSON.stringify({ ok: true }), {
+				status: 200,
+				headers: { "content-type": "application/json" },
+			});
 		upstreamRequest = { url: urlStr, init };
-		return new Response(JSON.stringify({ title: "Fight Club", alternative_titles: { titles: [{ iso_3166_1: "CN", title: "搏击俱乐部" }] } }), {
-			status: 200,
-			headers: { "content-type": "application/json" },
-		});
+		return new Response(
+			JSON.stringify({
+				title: "Fight Club",
+				alternative_titles: { titles: [{ iso_3166_1: "CN", title: "搏击俱乐部" }] },
+			}),
+			{
+				status: 200,
+				headers: { "content-type": "application/json" },
+			},
+		);
 	};
 	try {
-		const response = await app.request("https://example.test/api/3/movie/550?language=zh-CN", { headers: { Authorization: "Bearer client-token" } });
+		const response = await app.request("https://example.test/api/3/movie/550?language=zh-CN", {
+			headers: { Authorization: "Bearer client-token" },
+		});
 		assert.equal(upstreamRequest.url, `https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=alternative_titles%2Cexternal_ids`);
 		assert.equal(upstreamRequest.init.headers.authorization, "Bearer client-token");
 		assert.equal(upstreamRequest.init.headers[STATE_HEADER], undefined);
@@ -888,7 +1223,6 @@ test("非 TMDB 的 Vercel API 路径不会递归转发到自身", async () => {
 	}
 });
 
-
 test("原生 fetch 预取适配器不依赖 @nsnanocat/util 的 require 分支", async () => {
 	const originalFetch = globalThis.fetch;
 	globalThis.fetch = async (url, init) => {
@@ -900,7 +1234,11 @@ test("原生 fetch 预取适配器不依赖 @nsnanocat/util 的 require 分支",
 		});
 	};
 	try {
-		const response = await fetchTmdbWithNativeFetch({ method: "GET", url: "https://api.themoviedb.org/3/tv/1399", headers: { Authorization: "Bearer token" } });
+		const response = await fetchTmdbWithNativeFetch({
+			method: "GET",
+			url: "https://api.themoviedb.org/3/tv/1399",
+			headers: { Authorization: "Bearer token" },
+		});
 		assert.equal(response.ok, true);
 		assert.equal(JSON.parse(response.body).last_episode_to_air.season_number, 8);
 	} finally {
@@ -914,7 +1252,11 @@ test("isForwardHost 识别 forwardinfo 域名", () => {
 });
 
 test("Forward TV season credits 请求（aggregateCredits 开启）重定向到 TMDB", async () => {
-	const request = { method: "GET", url: "https://forwardinfo.vvebo.vip/tv/272432/season/1/credits?language=zh-CN", headers: {} };
+	const request = {
+		method: "GET",
+		url: "https://forwardinfo.vvebo.vip/tv/272432/season/1/credits?language=zh-CN",
+		headers: {},
+	};
 	const result = await applyTmdbRequestRules(request, { argument: { aggregateCredits: true }, env: TEST_ENV });
 	assert.ok(result.$response, "should return redirect response");
 	assert.equal(result.$response.status, 302);
@@ -947,32 +1289,52 @@ test("Forward credits 请求 aggregateCredits 关闭且 aliasFallback 关闭时�
 });
 
 test("Forward 重定向 URL 保留已有 api_key 不覆盖", async () => {
-	const request = { method: "GET", url: "https://forwardinfo.vvebo.vip/movie/550?language=zh-CN&api_key=custom-key", headers: {} };
+	const request = {
+		method: "GET",
+		url: "https://forwardinfo.vvebo.vip/movie/550?language=zh-CN&api_key=custom-key",
+		headers: {},
+	};
 	const result = await applyTmdbRequestRules(request, { argument: { aliasFallback: true } });
 	const location = new URL(result.$response.headers.Location);
 	assert.equal(location.searchParams.get("api_key"), "custom-key");
 });
 
 test("Forward 中文搜索请求不重定向（无需修改 url/参数，走响应脚本处理）", async () => {
-	const request = { method: "GET", url: "https://forwardinfo.vvebo.vip/search/movie?language=zh-CN&query=%E8%8B%B1%E9%9B%84%E6%97%A0%E5%BD%92", headers: {} };
+	const request = {
+		method: "GET",
+		url: "https://forwardinfo.vvebo.vip/search/movie?language=zh-CN&query=%E8%8B%B1%E9%9B%84%E6%97%A0%E5%BD%92",
+		headers: {},
+	};
 	const result = await applyTmdbRequestRules(request, { argument: { aliasFallback: true } });
 	assert.equal(result.$response, undefined);
 });
 
 test("Forward 中文 trending 请求不重定向（走响应脚本处理）", async () => {
-	const request = { method: "GET", url: "https://forwardinfo.vvebo.vip/trending/movie/week?language=zh-CN", headers: {} };
+	const request = {
+		method: "GET",
+		url: "https://forwardinfo.vvebo.vip/trending/movie/week?language=zh-CN",
+		headers: {},
+	};
 	const result = await applyTmdbRequestRules(request, { argument: { aliasFallback: true } });
 	assert.equal(result.$response, undefined);
 });
 
 test("Forward 英文请求不重定向（无需中文回填）", async () => {
-	const request = { method: "GET", url: "https://forwardinfo.vvebo.vip/search/movie?language=en-US&query=spider-man", headers: {} };
+	const request = {
+		method: "GET",
+		url: "https://forwardinfo.vvebo.vip/search/movie?language=en-US&query=spider-man",
+		headers: {},
+	};
 	const result = await applyTmdbRequestRules(request, { argument: { aliasFallback: true } });
 	assert.equal(result.$response, undefined);
 });
 
 test("Forward 中文请求 aliasFallback 关闭时不重定向", async () => {
-	const request = { method: "GET", url: "https://forwardinfo.vvebo.vip/search/movie?language=zh-CN&query=test", headers: {} };
+	const request = {
+		method: "GET",
+		url: "https://forwardinfo.vvebo.vip/search/movie?language=zh-CN&query=test",
+		headers: {},
+	};
 	const result = await applyTmdbRequestRules(request, { argument: { aliasFallback: false } });
 	assert.equal(result.$response, undefined);
 });
@@ -1006,14 +1368,15 @@ test("Forward 中文搜索响应会按条目补全中文片名，fetcher 请求 
 		env: TEST_ENV,
 		fetcher: async aliasRequest => {
 			fetched.push(aliasRequest);
-			return { ok: true, status: 200, body: JSON.stringify({ alternative_titles: { titles: [{ iso_3166_1: "CN", title: "搏击俱乐部" }] } }) };
+			return {
+				ok: true,
+				status: 200,
+				body: JSON.stringify({ alternative_titles: { titles: [{ iso_3166_1: "CN", title: "搏击俱乐部" }] } }),
+			};
 		},
 	});
 	assert.equal(fetched.length, 1);
-	assert.equal(
-		fetched[0].url,
-		`https://api.tmdb.org/3/movie/550?append_to_response=alternative_titles%2Cexternal_ids&language=zh-CN&api_key=${TEST_API_KEY}`,
-	);
+	assert.equal(fetched[0].url, `https://api.tmdb.org/3/movie/550?append_to_response=alternative_titles%2Cexternal_ids&language=zh-CN&api_key=${TEST_API_KEY}`);
 	assert.equal(fetched[0].headers["X-Signature"], undefined);
 	assert.equal(fetched[0].headers["X-Timestamp"], undefined);
 	assert.equal(fetched[0].headers.Authorization, undefined);
@@ -1027,7 +1390,11 @@ test("Forward 中文搜索响应会按条目补全中文片名，fetcher 请求 
 });
 
 test("Forward 中文搜索剧集响应同样按条目补全中文片名", async () => {
-	const request = { method: "GET", url: "https://forwardinfo.vvebo.vip/search/tv?language=zh-CN&query=%E4%B8%BA%E5%85%A8%E4%BA%BA%E7%B1%BB", headers: {} };
+	const request = {
+		method: "GET",
+		url: "https://forwardinfo.vvebo.vip/search/tv?language=zh-CN&query=%E4%B8%BA%E5%85%A8%E4%BA%BA%E7%B1%BB",
+		headers: {},
+	};
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -1041,7 +1408,11 @@ test("Forward 中文搜索剧集响应同样按条目补全中文片名", async 
 		env: TEST_ENV,
 		fetcher: async aliasRequest => {
 			fetched.push(aliasRequest);
-			return { ok: true, status: 200, body: JSON.stringify({ alternative_titles: { results: [{ iso_3166_1: "CN", title: "为全人类" }] } }) };
+			return {
+				ok: true,
+				status: 200,
+				body: JSON.stringify({ alternative_titles: { results: [{ iso_3166_1: "CN", title: "为全人类" }] } }),
+			};
 		},
 	});
 	assert.equal(fetched.length, 1);
@@ -1051,8 +1422,14 @@ test("Forward 中文搜索剧集响应同样按条目补全中文片名", async 
 
 test("电影详情 append credits 时使用豆瓣数据汉化角色名", async () => {
 	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits", headers: {} };
-	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits",
+		headers: {},
+	};
+	await applyTmdbRequestRules(request, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+	});
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -1075,7 +1452,11 @@ test("电影详情 append credits 时使用豆瓣数据汉化角色名", async (
 		fetcher: async req => {
 			fetched.push(req.url);
 			if (req.url.includes("frodo.douban.com/api/v2/search/suggestion")) {
-				return { ok: true, status: 200, body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }) };
+				return {
+					ok: true,
+					status: 200,
+					body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }),
+				};
 			}
 			if (req.url.includes("frodo.douban.com/api/v2/movie/1292052/credits_stats")) {
 				return {
@@ -1101,8 +1482,14 @@ test("电影详情 append credits 时使用豆瓣数据汉化角色名", async (
 test("有中文标题且有豆瓣角色名时缓存 30 天", async () => {
 	const now = 1_700_000_000_000;
 	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits", headers: {} };
-	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits",
+		headers: {},
+	};
+	await applyTmdbRequestRules(request, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+	});
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -1119,10 +1506,18 @@ test("有中文标题且有豆瓣角色名时缓存 30 天", async () => {
 		now,
 		fetcher: async req => {
 			if (req.url.includes("frodo.douban.com/api/v2/search/suggestion")) {
-				return { ok: true, status: 200, body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }) };
+				return {
+					ok: true,
+					status: 200,
+					body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }),
+				};
 			}
 			if (req.url.includes("frodo.douban.com/api/v2/movie/1292052/credits_stats")) {
-				return { ok: true, status: 200, body: JSON.stringify({ items: [{ name: "爱德华·诺顿", simple_character: "饰 旁白者", category: "演员" }] }) };
+				return {
+					ok: true,
+					status: 200,
+					body: JSON.stringify({ items: [{ name: "爱德华·诺顿", simple_character: "饰 旁白者", category: "演员" }] }),
+				};
 			}
 			return { ok: false, status: 404, body: "{}" };
 		},
@@ -1135,8 +1530,14 @@ test("有中文标题且有豆瓣角色名时缓存 30 天", async () => {
 test("有中文别名且有豆瓣角色名时缓存 30 天", async () => {
 	const now = 1_700_000_000_000;
 	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits", headers: {} };
-	await applyTmdbRequestRules(request, { argument: { aliasFallback: true, aggregateCredits: false, characterTranslation: true } });
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits",
+		headers: {},
+	};
+	await applyTmdbRequestRules(request, {
+		argument: { aliasFallback: true, aggregateCredits: false, characterTranslation: true },
+	});
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -1154,10 +1555,18 @@ test("有中文别名且有豆瓣角色名时缓存 30 天", async () => {
 		now,
 		fetcher: async req => {
 			if (req.url.includes("frodo.douban.com/api/v2/search/suggestion")) {
-				return { ok: true, status: 200, body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }) };
+				return {
+					ok: true,
+					status: 200,
+					body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }),
+				};
 			}
 			if (req.url.includes("frodo.douban.com/api/v2/movie/1292052/credits_stats")) {
-				return { ok: true, status: 200, body: JSON.stringify({ items: [{ name: "爱德华·诺顿", simple_character: "饰 旁白者", category: "演员" }] }) };
+				return {
+					ok: true,
+					status: 200,
+					body: JSON.stringify({ items: [{ name: "爱德华·诺顿", simple_character: "饰 旁白者", category: "演员" }] }),
+				};
 			}
 			return { ok: false, status: 404, body: "{}" };
 		},
@@ -1170,8 +1579,14 @@ test("有中文别名且有豆瓣角色名时缓存 30 天", async () => {
 test("无中文标题和别名但有豆瓣角色名时缓存 7 天", async () => {
 	const now = 1_700_000_000_000;
 	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits", headers: {} };
-	await applyTmdbRequestRules(request, { argument: { aliasFallback: true, aggregateCredits: false, characterTranslation: true } });
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits",
+		headers: {},
+	};
+	await applyTmdbRequestRules(request, {
+		argument: { aliasFallback: true, aggregateCredits: false, characterTranslation: true },
+	});
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -1189,10 +1604,18 @@ test("无中文标题和别名但有豆瓣角色名时缓存 7 天", async () =>
 		now,
 		fetcher: async req => {
 			if (req.url.includes("frodo.douban.com/api/v2/search/suggestion")) {
-				return { ok: true, status: 200, body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }) };
+				return {
+					ok: true,
+					status: 200,
+					body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }),
+				};
 			}
 			if (req.url.includes("frodo.douban.com/api/v2/movie/1292052/credits_stats")) {
-				return { ok: true, status: 200, body: JSON.stringify({ items: [{ name: "爱德华·诺顿", simple_character: "饰 旁白者", category: "演员" }] }) };
+				return {
+					ok: true,
+					status: 200,
+					body: JSON.stringify({ items: [{ name: "爱德华·诺顿", simple_character: "饰 旁白者", category: "演员" }] }),
+				};
 			}
 			return { ok: false, status: 404, body: "{}" };
 		},
@@ -1205,8 +1628,14 @@ test("无中文标题和别名但有豆瓣角色名时缓存 7 天", async () =>
 test("有中文来源但无豆瓣角色名时缓存 7 天", async () => {
 	const now = 1_700_000_000_000;
 	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits", headers: {} };
-	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits",
+		headers: {},
+	};
+	await applyTmdbRequestRules(request, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+	});
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -1223,7 +1652,11 @@ test("有中文来源但无豆瓣角色名时缓存 7 天", async () => {
 		now,
 		fetcher: async req => {
 			if (req.url.includes("frodo.douban.com/api/v2/search/suggestion")) {
-				return { ok: true, status: 200, body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }) };
+				return {
+					ok: true,
+					status: 200,
+					body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }),
+				};
 			}
 			if (req.url.includes("frodo.douban.com/api/v2/movie/1292052/credits_stats")) {
 				return { ok: true, status: 200, body: JSON.stringify({ items: [] }) };
@@ -1239,7 +1672,9 @@ test("有中文来源但无豆瓣角色名时缓存 7 天", async () => {
 test("独立电影 credits 请求通过 external_ids 获取 imdb_id 后汉化角色名", async () => {
 	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
 	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550/credits?language=zh-CN", headers: {} };
-	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	await applyTmdbRequestRules(request, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+	});
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -1260,7 +1695,11 @@ test("独立电影 credits 请求通过 external_ids 获取 imdb_id 后汉化角
 				return { ok: true, status: 200, body: JSON.stringify({ title: "Fight Club", origin_country: ["CN"] }) };
 			}
 			if (req.url.includes("frodo.douban.com/api/v2/search/suggestion")) {
-				return { ok: true, status: 200, body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }) };
+				return {
+					ok: true,
+					status: 200,
+					body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }),
+				};
 			}
 			if (req.url.includes("frodo.douban.com/api/v2/movie/1292052/credits_stats")) {
 				return {
@@ -1276,13 +1715,22 @@ test("独立电影 credits 请求通过 external_ids 获取 imdb_id 后汉化角
 	});
 	const body = JSON.parse(response.body);
 	assert.equal(body.cast[0].character, "旁白者");
-	assert.ok(fetched.some(url => url.includes("/movie/550/external_ids")), "should fetch external_ids for imdb_id");
+	assert.ok(
+		fetched.some(url => url.includes("/movie/550/external_ids")),
+		"should fetch external_ids for imdb_id",
+	);
 });
 
 test("TV 详情 append credits 时使用豆瓣数据汉化角色名（含季数据）", async () => {
 	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/tv/1399?language=zh-CN&append_to_response=credits", headers: {} };
-	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: true, characterTranslation: true } });
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/tv/1399?language=zh-CN&append_to_response=credits",
+		headers: {},
+	};
+	await applyTmdbRequestRules(request, {
+		argument: { aliasFallback: false, aggregateCredits: true, characterTranslation: true },
+	});
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -1300,7 +1748,11 @@ test("TV 详情 append credits 时使用豆瓣数据汉化角色名（含季数�
 		storage,
 		fetcher: async req => {
 			if (req.url.includes("frodo.douban.com/api/v2/search/suggestion")) {
-				return { ok: true, status: 200, body: JSON.stringify({ cards: [{ target_id: "3016187", target_type: "tv" }] }) };
+				return {
+					ok: true,
+					status: 200,
+					body: JSON.stringify({ cards: [{ target_id: "3016187", target_type: "tv" }] }),
+				};
 			}
 			if (req.url.includes("frodo.douban.com/api/v2/tv/3016187/seasons")) {
 				return { ok: true, status: 200, body: JSON.stringify({ seasons: [{ id: "26862749" }] }) };
@@ -1323,7 +1775,9 @@ test("TV 详情 append credits 时使用豆瓣数据汉化角色名（含季数�
 
 test("非中文请求不汉化角色名", async () => {
 	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550/credits?language=en-US", headers: {} };
-	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	await applyTmdbRequestRules(request, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+	});
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -1343,8 +1797,14 @@ test("非中文请求不汉化角色名", async () => {
 
 test("已有中文角色名不被覆盖", async () => {
 	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits", headers: {} };
-	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits",
+		headers: {},
+	};
+	await applyTmdbRequestRules(request, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+	});
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -1357,14 +1817,20 @@ test("已有中文角色名不被覆盖", async () => {
 	await applyTmdbResponseRules(request, response, {
 		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
 		storage,
-		fetcher: async () => ({ ok: true, status: 200, body: JSON.stringify({ items: [{ name: "爱德华·诺顿", simple_character: "饰 其他角色", category: "演员" }] }) }),
+		fetcher: async () => ({
+			ok: true,
+			status: 200,
+			body: JSON.stringify({ items: [{ name: "爱德华·诺顿", simple_character: "饰 其他角色", category: "演员" }] }),
+		}),
 	});
 	assert.equal(JSON.parse(response.body).credits.cast[0].character, "旁白者");
 });
 
 test("characterTranslation 关闭时不汉化角色名", async () => {
 	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550/credits?language=zh-CN", headers: {} };
-	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: false } });
+	await applyTmdbRequestRules(request, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: false },
+	});
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -1384,8 +1850,14 @@ test("characterTranslation 关闭时不汉化角色名", async () => {
 
 test("配音角色名追加（配音）后缀", async () => {
 	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits", headers: {} };
-	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits",
+		headers: {},
+	};
+	await applyTmdbRequestRules(request, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+	});
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -1401,7 +1873,11 @@ test("配音角色名追加（配音）后缀", async () => {
 		storage,
 		fetcher: async req => {
 			if (req.url.includes("frodo.douban.com/api/v2/search/suggestion")) {
-				return { ok: true, status: 200, body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }) };
+				return {
+					ok: true,
+					status: 200,
+					body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }),
+				};
 			}
 			if (req.url.includes("frodo.douban.com/api/v2/movie/1292052/credits_stats")) {
 				return {
@@ -1420,8 +1896,14 @@ test("配音角色名追加（配音）后缀", async () => {
 
 test("TMDB 角色名 (voice) 无豆瓣匹配时替换为配音", async () => {
 	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits", headers: {} };
-	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits",
+		headers: {},
+	};
+	await applyTmdbRequestRules(request, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+	});
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -1437,7 +1919,11 @@ test("TMDB 角色名 (voice) 无豆瓣匹配时替换为配音", async () => {
 		storage,
 		fetcher: async req => {
 			if (req.url.includes("frodo.douban.com/api/v2/search/suggestion")) {
-				return { ok: true, status: 200, body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }) };
+				return {
+					ok: true,
+					status: 200,
+					body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }),
+				};
 			}
 			if (req.url.includes("frodo.douban.com/api/v2/movie/1292052/credits_stats")) {
 				return { ok: true, status: 200, body: JSON.stringify({ items: [] }) };
@@ -1450,8 +1936,14 @@ test("TMDB 角色名 (voice) 无豆瓣匹配时替换为配音", async () => {
 
 test("TMDB 角色名 (voice) 豆瓣仅有配音占位时替换为配音", async () => {
 	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits", headers: {} };
-	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits",
+		headers: {},
+	};
+	await applyTmdbRequestRules(request, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+	});
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -1467,10 +1959,18 @@ test("TMDB 角色名 (voice) 豆瓣仅有配音占位时替换为配音", async 
 		storage,
 		fetcher: async req => {
 			if (req.url.includes("frodo.douban.com/api/v2/search/suggestion")) {
-				return { ok: true, status: 200, body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }) };
+				return {
+					ok: true,
+					status: 200,
+					body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }),
+				};
 			}
 			if (req.url.includes("frodo.douban.com/api/v2/movie/1292052/credits_stats")) {
-				return { ok: true, status: 200, body: JSON.stringify({ items: [{ name: "张三", simple_character: "配音", category: "配音" }] }) };
+				return {
+					ok: true,
+					status: 200,
+					body: JSON.stringify({ items: [{ name: "张三", simple_character: "配音", category: "配音" }] }),
+				};
 			}
 			return { ok: false, status: 404, body: "{}" };
 		},
@@ -1480,8 +1980,14 @@ test("TMDB 角色名 (voice) 豆瓣仅有配音占位时替换为配音", async 
 
 test("TMDB 角色名 (voice) 豆瓣有真实角色名时优先使用豆瓣角色名", async () => {
 	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits", headers: {} };
-	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits",
+		headers: {},
+	};
+	await applyTmdbRequestRules(request, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+	});
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -1497,10 +2003,18 @@ test("TMDB 角色名 (voice) 豆瓣有真实角色名时优先使用豆瓣角色
 		storage,
 		fetcher: async req => {
 			if (req.url.includes("frodo.douban.com/api/v2/search/suggestion")) {
-				return { ok: true, status: 200, body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }) };
+				return {
+					ok: true,
+					status: 200,
+					body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }),
+				};
 			}
 			if (req.url.includes("frodo.douban.com/api/v2/movie/1292052/credits_stats")) {
-				return { ok: true, status: 200, body: JSON.stringify({ items: [{ name: "张三", simple_character: "配 孙悟空", category: "配音" }] }) };
+				return {
+					ok: true,
+					status: 200,
+					body: JSON.stringify({ items: [{ name: "张三", simple_character: "配 孙悟空", category: "配音" }] }),
+				};
 			}
 			return { ok: false, status: 404, body: "{}" };
 		},
@@ -1510,8 +2024,14 @@ test("TMDB 角色名 (voice) 豆瓣有真实角色名时优先使用豆瓣角色
 
 test("TMDB 角色名 (配音) 中文占位符替换为配音", async () => {
 	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits", headers: {} };
-	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits",
+		headers: {},
+	};
+	await applyTmdbRequestRules(request, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+	});
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -1527,7 +2047,11 @@ test("TMDB 角色名 (配音) 中文占位符替换为配音", async () => {
 		storage,
 		fetcher: async req => {
 			if (req.url.includes("frodo.douban.com/api/v2/search/suggestion")) {
-				return { ok: true, status: 200, body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }) };
+				return {
+					ok: true,
+					status: 200,
+					body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }),
+				};
 			}
 			if (req.url.includes("frodo.douban.com/api/v2/movie/1292052/credits_stats")) {
 				return { ok: true, status: 200, body: JSON.stringify({ items: [] }) };
@@ -1540,8 +2064,14 @@ test("TMDB 角色名 (配音) 中文占位符替换为配音", async () => {
 
 test("TMDB 角色名 （voice） 全角括号匹配替换为配音", async () => {
 	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits", headers: {} };
-	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits",
+		headers: {},
+	};
+	await applyTmdbRequestRules(request, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+	});
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -1557,7 +2087,11 @@ test("TMDB 角色名 （voice） 全角括号匹配替换为配音", async () =>
 		storage,
 		fetcher: async req => {
 			if (req.url.includes("frodo.douban.com/api/v2/search/suggestion")) {
-				return { ok: true, status: 200, body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }) };
+				return {
+					ok: true,
+					status: 200,
+					body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }),
+				};
 			}
 			if (req.url.includes("frodo.douban.com/api/v2/movie/1292052/credits_stats")) {
 				return { ok: true, status: 200, body: JSON.stringify({ items: [] }) };
@@ -1570,8 +2104,14 @@ test("TMDB 角色名 （voice） 全角括号匹配替换为配音", async () =>
 
 test("TMDB 角色名 秦牧 (voice) 无豆瓣匹配时替换为秦牧（配音）", async () => {
 	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits", headers: {} };
-	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits",
+		headers: {},
+	};
+	await applyTmdbRequestRules(request, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+	});
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -1587,7 +2127,11 @@ test("TMDB 角色名 秦牧 (voice) 无豆瓣匹配时替换为秦牧（配音�
 		storage,
 		fetcher: async req => {
 			if (req.url.includes("frodo.douban.com/api/v2/search/suggestion")) {
-				return { ok: true, status: 200, body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }) };
+				return {
+					ok: true,
+					status: 200,
+					body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }),
+				};
 			}
 			if (req.url.includes("frodo.douban.com/api/v2/movie/1292052/credits_stats")) {
 				return { ok: true, status: 200, body: JSON.stringify({ items: [] }) };
@@ -1600,8 +2144,14 @@ test("TMDB 角色名 秦牧 (voice) 无豆瓣匹配时替换为秦牧（配音�
 
 test("TMDB 角色名 秦牧 (voice) 豆瓣仅有配音占位时替换为秦牧（配音）", async () => {
 	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits", headers: {} };
-	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits",
+		headers: {},
+	};
+	await applyTmdbRequestRules(request, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+	});
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -1617,10 +2167,18 @@ test("TMDB 角色名 秦牧 (voice) 豆瓣仅有配音占位时替换为秦牧�
 		storage,
 		fetcher: async req => {
 			if (req.url.includes("frodo.douban.com/api/v2/search/suggestion")) {
-				return { ok: true, status: 200, body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }) };
+				return {
+					ok: true,
+					status: 200,
+					body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }),
+				};
 			}
 			if (req.url.includes("frodo.douban.com/api/v2/movie/1292052/credits_stats")) {
-				return { ok: true, status: 200, body: JSON.stringify({ items: [{ name: "张三", simple_character: "配音", category: "配音" }] }) };
+				return {
+					ok: true,
+					status: 200,
+					body: JSON.stringify({ items: [{ name: "张三", simple_character: "配音", category: "配音" }] }),
+				};
 			}
 			return { ok: false, status: 404, body: "{}" };
 		},
@@ -1630,8 +2188,14 @@ test("TMDB 角色名 秦牧 (voice) 豆瓣仅有配音占位时替换为秦牧�
 
 test("TMDB 角色名 秦牧 (voice) 豆瓣有真实角色名时优先使用豆瓣角色名", async () => {
 	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits", headers: {} };
-	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits",
+		headers: {},
+	};
+	await applyTmdbRequestRules(request, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+	});
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -1647,10 +2211,18 @@ test("TMDB 角色名 秦牧 (voice) 豆瓣有真实角色名时优先使用豆�
 		storage,
 		fetcher: async req => {
 			if (req.url.includes("frodo.douban.com/api/v2/search/suggestion")) {
-				return { ok: true, status: 200, body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }) };
+				return {
+					ok: true,
+					status: 200,
+					body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }),
+				};
 			}
 			if (req.url.includes("frodo.douban.com/api/v2/movie/1292052/credits_stats")) {
-				return { ok: true, status: 200, body: JSON.stringify({ items: [{ name: "张三", simple_character: "配 孙悟空", category: "配音" }] }) };
+				return {
+					ok: true,
+					status: 200,
+					body: JSON.stringify({ items: [{ name: "张三", simple_character: "配 孙悟空", category: "配音" }] }),
+				};
 			}
 			return { ok: false, status: 404, body: "{}" };
 		},
@@ -1660,8 +2232,14 @@ test("TMDB 角色名 秦牧 (voice) 豆瓣有真实角色名时优先使用豆�
 
 test("TMDB 角色名 龍貓 (voice) 繁体角色名转换为繁体配音后缀", async () => {
 	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-TW&append_to_response=credits", headers: {} };
-	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/movie/550?language=zh-TW&append_to_response=credits",
+		headers: {},
+	};
+	await applyTmdbRequestRules(request, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+	});
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -1677,7 +2255,11 @@ test("TMDB 角色名 龍貓 (voice) 繁体角色名转换为繁体配音后缀",
 		storage,
 		fetcher: async req => {
 			if (req.url.includes("frodo.douban.com/api/v2/search/suggestion")) {
-				return { ok: true, status: 200, body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }) };
+				return {
+					ok: true,
+					status: 200,
+					body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }),
+				};
 			}
 			if (req.url.includes("frodo.douban.com/api/v2/movie/1292052/credits_stats")) {
 				return { ok: true, status: 200, body: JSON.stringify({ items: [] }) };
@@ -1690,8 +2272,14 @@ test("TMDB 角色名 龍貓 (voice) 繁体角色名转换为繁体配音后缀",
 
 test("豆瓣职位值不被当作角色名", async () => {
 	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits", headers: {} };
-	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits",
+		headers: {},
+	};
+	await applyTmdbRequestRules(request, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+	});
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -1707,7 +2295,11 @@ test("豆瓣职位值不被当作角色名", async () => {
 		storage,
 		fetcher: async req => {
 			if (req.url.includes("frodo.douban.com/api/v2/search/suggestion")) {
-				return { ok: true, status: 200, body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }) };
+				return {
+					ok: true,
+					status: 200,
+					body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }),
+				};
 			}
 			if (req.url.includes("frodo.douban.com/api/v2/movie/1292052/credits_stats")) {
 				return {
@@ -1731,8 +2323,14 @@ test("豆瓣职位值不被当作角色名", async () => {
 
 test("TMDB 和豆瓣均无角色名时用'演员'占位", async () => {
 	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits", headers: {} };
-	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits",
+		headers: {},
+	};
+	await applyTmdbRequestRules(request, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+	});
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -1748,7 +2346,11 @@ test("TMDB 和豆瓣均无角色名时用'演员'占位", async () => {
 		storage,
 		fetcher: async req => {
 			if (req.url.includes("frodo.douban.com/api/v2/search/suggestion")) {
-				return { ok: true, status: 200, body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }) };
+				return {
+					ok: true,
+					status: 200,
+					body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }),
+				};
 			}
 			if (req.url.includes("frodo.douban.com/api/v2/movie/1292052/credits_stats")) {
 				return {
@@ -1767,8 +2369,14 @@ test("TMDB 和豆瓣均无角色名时用'演员'占位", async () => {
 
 test("TMDB 和豆瓣均无角色名时配音演员用'配音'占位", async () => {
 	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits", headers: {} };
-	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits",
+		headers: {},
+	};
+	await applyTmdbRequestRules(request, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+	});
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -1784,7 +2392,11 @@ test("TMDB 和豆瓣均无角色名时配音演员用'配音'占位", async () =
 		storage,
 		fetcher: async req => {
 			if (req.url.includes("frodo.douban.com/api/v2/search/suggestion")) {
-				return { ok: true, status: 200, body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }) };
+				return {
+					ok: true,
+					status: 200,
+					body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }),
+				};
 			}
 			if (req.url.includes("frodo.douban.com/api/v2/movie/1292052/credits_stats")) {
 				return {
@@ -1803,8 +2415,14 @@ test("TMDB 和豆瓣均无角色名时配音演员用'配音'占位", async () =
 
 test("非中日韩影片不汉化角色名", async () => {
 	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits", headers: {} };
-	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits",
+		headers: {},
+	};
+	await applyTmdbRequestRules(request, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+	});
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -1829,8 +2447,14 @@ test("非中日韩影片不汉化角色名", async () => {
 
 test("港澳台影片汉化角色名", async () => {
 	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits", headers: {} };
-	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits",
+		headers: {},
+	};
+	await applyTmdbRequestRules(request, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+	});
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -1846,7 +2470,11 @@ test("港澳台影片汉化角色名", async () => {
 		storage,
 		fetcher: async req => {
 			if (req.url.includes("frodo.douban.com/api/v2/search/suggestion")) {
-				return { ok: true, status: 200, body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }) };
+				return {
+					ok: true,
+					status: 200,
+					body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }),
+				};
 			}
 			if (req.url.includes("frodo.douban.com/api/v2/movie/1292052/credits_stats")) {
 				return {
@@ -1865,8 +2493,14 @@ test("港澳台影片汉化角色名", async () => {
 
 test("TMDB 有英文角色名时占位符不覆盖", async () => {
 	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits", headers: {} };
-	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits",
+		headers: {},
+	};
+	await applyTmdbRequestRules(request, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+	});
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -1880,7 +2514,11 @@ test("TMDB 有英文角色名时占位符不覆盖", async () => {
 		storage,
 		fetcher: async req => {
 			if (req.url.includes("frodo.douban.com/api/v2/search/suggestion")) {
-				return { ok: true, status: 200, body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }) };
+				return {
+					ok: true,
+					status: 200,
+					body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }),
+				};
 			}
 			if (req.url.includes("frodo.douban.com/api/v2/movie/1292052/credits_stats")) {
 				return {
@@ -1899,8 +2537,14 @@ test("TMDB 有英文角色名时占位符不覆盖", async () => {
 
 test("豆瓣有真角色名时移除占位符", async () => {
 	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits", headers: {} };
-	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits",
+		headers: {},
+	};
+	await applyTmdbRequestRules(request, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+	});
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -1916,7 +2560,11 @@ test("豆瓣有真角色名时移除占位符", async () => {
 		storage,
 		fetcher: async req => {
 			if (req.url.includes("frodo.douban.com/api/v2/search/suggestion")) {
-				return { ok: true, status: 200, body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }) };
+				return {
+					ok: true,
+					status: 200,
+					body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }),
+				};
 			}
 			if (req.url.includes("frodo.douban.com/api/v2/movie/1292052/credits_stats")) {
 				return {
@@ -1945,11 +2593,11 @@ test("豆瓣角色名缓存命中时不重复请求", async () => {
 				movie: {
 					550: {
 						imdbId: "tt0137523",
-					doubanId: "1292052",
-					characters: { "爱德华·诺顿": ["旁白者"] },
-					originCountries: ["CN"],
-					title: "搏击俱乐部",
-					year: "1999",
+						doubanId: "1292052",
+						characters: { 爱德华·诺顿: ["旁白者"] },
+						originCountries: ["CN"],
+						title: "搏击俱乐部",
+						year: "1999",
 						createdAt: now,
 						expiresAt: now + CACHE_TTL_MS,
 					},
@@ -1959,7 +2607,9 @@ test("豆瓣角色名缓存命中时不重复请求", async () => {
 		},
 	});
 	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550/credits?language=zh-CN", headers: {} };
-	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	await applyTmdbRequestRules(request, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+	});
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -1988,11 +2638,11 @@ test("IMDB ID 缓存命中时不请求 external_ids", async () => {
 				movie: {
 					550: {
 						imdbId: "tt0137523",
-					doubanId: "1292052",
-					characters: { "爱德华·诺顿": ["旁白者"] },
-					originCountries: ["CN"],
-					title: "搏击俱乐部",
-					year: "1999",
+						doubanId: "1292052",
+						characters: { 爱德华·诺顿: ["旁白者"] },
+						originCountries: ["CN"],
+						title: "搏击俱乐部",
+						year: "1999",
 						createdAt: now,
 						expiresAt: now + CACHE_TTL_MS,
 					},
@@ -2002,7 +2652,9 @@ test("IMDB ID 缓存命中时不请求 external_ids", async () => {
 		},
 	});
 	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550/credits?language=zh-CN", headers: {} };
-	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	await applyTmdbRequestRules(request, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+	});
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -2031,11 +2683,11 @@ test("豆瓣 ID 缓存命中时不请求搜索接口", async () => {
 				movie: {
 					550: {
 						imdbId: "tt0137523",
-					doubanId: "1292052",
-					characters: { "爱德华·诺顿": ["旁白者"] },
-					originCountries: ["CN"],
-					title: "搏击俱乐部",
-					year: "1999",
+						doubanId: "1292052",
+						characters: { 爱德华·诺顿: ["旁白者"] },
+						originCountries: ["CN"],
+						title: "搏击俱乐部",
+						year: "1999",
 						createdAt: now,
 						expiresAt: now + CACHE_TTL_MS,
 					},
@@ -2045,7 +2697,9 @@ test("豆瓣 ID 缓存命中时不请求搜索接口", async () => {
 		},
 	});
 	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550/credits?language=zh-CN", headers: {} };
-	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	await applyTmdbRequestRules(request, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+	});
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -2067,8 +2721,14 @@ test("豆瓣 ID 缓存命中时不请求搜索接口", async () => {
 
 test("豆瓣 API 失败时保持原角色名", async () => {
 	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits", headers: {} };
-	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits",
+		headers: {},
+	};
+	await applyTmdbRequestRules(request, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+	});
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -2096,11 +2756,11 @@ test("统一缓存兼容别名和角色名", async () => {
 					550: {
 						aliases: { CN: "搏击俱乐部" },
 						imdbId: "tt0137523",
-					doubanId: "1292052",
-					characters: { "爱德华·诺顿": ["旁白者"] },
-					originCountries: ["CN"],
-					title: "搏击俱乐部",
-					year: "1999",
+						doubanId: "1292052",
+						characters: { 爱德华·诺顿: ["旁白者"] },
+						originCountries: ["CN"],
+						title: "搏击俱乐部",
+						year: "1999",
 						createdAt: now,
 						expiresAt: now + CACHE_TTL_MS,
 					},
@@ -2110,7 +2770,9 @@ test("统一缓存兼容别名和角色名", async () => {
 		},
 	});
 	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550/credits?language=zh-CN", headers: {} };
-	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	await applyTmdbRequestRules(request, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+	});
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -2136,8 +2798,14 @@ test("统一缓存兼容别名和角色名", async () => {
 
 test("角色名汉化结果写入缓存供后续请求复用", async () => {
 	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits", headers: {} };
-	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits",
+		headers: {},
+	};
+	await applyTmdbRequestRules(request, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+	});
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -2153,7 +2821,11 @@ test("角色名汉化结果写入缓存供后续请求复用", async () => {
 		storage,
 		fetcher: async req => {
 			if (req.url.includes("frodo.douban.com/api/v2/search/suggestion")) {
-				return { ok: true, status: 200, body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }) };
+				return {
+					ok: true,
+					status: 200,
+					body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }),
+				};
 			}
 			if (req.url.includes("frodo.douban.com/api/v2/movie/1292052/credits_stats")) {
 				return {
@@ -2168,13 +2840,19 @@ test("角色名汉化结果写入缓存供后续请求复用", async () => {
 	const entry = storage.store.dj_tmdb_proxy_cache.stores.movie["550"];
 	assert.equal(entry.imdbId, "tt0137523");
 	assert.equal(entry.doubanId, "1292052");
-	assert.deepEqual(entry.characters, { "爱德华·诺顿": ["旁白者"] });
+	assert.deepEqual(entry.characters, { 爱德华·诺顿: ["旁白者"] });
 });
 
 test("zh-TW 请求将角色名转换为繁体", async () => {
 	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-TW&append_to_response=credits", headers: {} };
-	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/movie/550?language=zh-TW&append_to_response=credits",
+		headers: {},
+	};
+	await applyTmdbRequestRules(request, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+	});
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -2190,7 +2868,11 @@ test("zh-TW 请求将角色名转换为繁体", async () => {
 		storage,
 		fetcher: async req => {
 			if (req.url.includes("frodo.douban.com/api/v2/search/suggestion")) {
-				return { ok: true, status: 200, body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }) };
+				return {
+					ok: true,
+					status: 200,
+					body: JSON.stringify({ cards: [{ target_id: "1292052", target_type: "movie" }] }),
+				};
 			}
 			if (req.url.includes("frodo.douban.com/api/v2/movie/1292052/credits_stats")) {
 				return {
@@ -2207,8 +2889,14 @@ test("zh-TW 请求将角色名转换为繁体", async () => {
 
 test("imdbId 与名称并发搜索，imdbId 无结果时使用名称结果并按年份匹配", async () => {
 	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits", headers: {} };
-	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits",
+		headers: {},
+	};
+	await applyTmdbRequestRules(request, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+	});
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -2230,31 +2918,50 @@ test("imdbId 与名称并发搜索，imdbId 无结果时使用名称结果并按
 				const url = new URL(req.url);
 				const q = url.searchParams.get("q");
 				if (q === "tt37118307") return { ok: true, status: 200, body: JSON.stringify({ cards: [] }) };
-				if (q === "九门") return {
-					ok: true,
-					status: 200,
-					body: JSON.stringify({ cards: [
-						{ target_id: "26614088", target_type: "movie", target: { title: "老九门", year: "2016" } },
-						{ target_id: "1234567", target_type: "movie", target: { title: "九门", year: "2026" } },
-					] }),
-				};
+				if (q === "九门")
+					return {
+						ok: true,
+						status: 200,
+						body: JSON.stringify({
+							cards: [
+								{ target_id: "26614088", target_type: "movie", target: { title: "老九门", year: "2016" } },
+								{ target_id: "1234567", target_type: "movie", target: { title: "九门", year: "2026" } },
+							],
+						}),
+					};
 			}
 			if (req.url.includes("frodo.douban.com/api/v2/movie/1234567/credits_stats")) {
-				return { ok: true, status: 200, body: JSON.stringify({ items: [{ name: "演员甲", simple_character: "饰 角色", category: "演员" }] }) };
+				return {
+					ok: true,
+					status: 200,
+					body: JSON.stringify({ items: [{ name: "演员甲", simple_character: "饰 角色", category: "演员" }] }),
+				};
 			}
 			return { ok: false, status: 404, body: "{}" };
 		},
 	});
-	assert.ok(fetched.some(url => url.includes("q=tt37118307")), "should search by imdbId");
-	assert.ok(fetched.some(url => url.includes("q=%E4%B9%9D%E9%97%A8")), "should search by name concurrently");
+	assert.ok(
+		fetched.some(url => url.includes("q=tt37118307")),
+		"should search by imdbId",
+	);
+	assert.ok(
+		fetched.some(url => url.includes("q=%E4%B9%9D%E9%97%A8")),
+		"should search by name concurrently",
+	);
 	assert.equal(JSON.parse(response.body).credits.cast[0].character, "角色");
 	assert.equal(storage.store.dj_tmdb_proxy_cache.stores.movie["550"].doubanId, "1234567", "should match by title and year");
 });
 
 test("imdbId 搜索有结果时优先使用 imdbId 结果", async () => {
 	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits", headers: {} };
-	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/movie/550?language=zh-CN&append_to_response=credits",
+		headers: {},
+	};
+	await applyTmdbRequestRules(request, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+	});
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -2275,11 +2982,29 @@ test("imdbId 搜索有结果时优先使用 imdbId 结果", async () => {
 			if (req.url.includes("frodo.douban.com/api/v2/search/suggestion")) {
 				const url = new URL(req.url);
 				const q = url.searchParams.get("q");
-				if (q === "tt37118307") return { ok: true, status: 200, body: JSON.stringify({ cards: [{ target_id: "imdb-result", target_type: "movie", target: { title: "九门", year: "2026" } }] }) };
-				if (q === "九门") return { ok: true, status: 200, body: JSON.stringify({ cards: [{ target_id: "fallback-result", target_type: "movie", target: { title: "九门", year: "2026" } }] }) };
+				if (q === "tt37118307")
+					return {
+						ok: true,
+						status: 200,
+						body: JSON.stringify({
+							cards: [{ target_id: "imdb-result", target_type: "movie", target: { title: "九门", year: "2026" } }],
+						}),
+					};
+				if (q === "九门")
+					return {
+						ok: true,
+						status: 200,
+						body: JSON.stringify({
+							cards: [{ target_id: "fallback-result", target_type: "movie", target: { title: "九门", year: "2026" } }],
+						}),
+					};
 			}
 			if (req.url.includes("frodo.douban.com/api/v2/movie/imdb-result/credits_stats")) {
-				return { ok: true, status: 200, body: JSON.stringify({ items: [{ name: "演员甲", simple_character: "饰 imdb角色", category: "演员" }] }) };
+				return {
+					ok: true,
+					status: 200,
+					body: JSON.stringify({ items: [{ name: "演员甲", simple_character: "饰 imdb角色", category: "演员" }] }),
+				};
 			}
 			return { ok: false, status: 404, body: "{}" };
 		},
@@ -2291,7 +3016,9 @@ test("imdbId 搜索有结果时优先使用 imdbId 结果", async () => {
 test("独立 credits 请求时从详情接口获取标题用于 fallback 搜索", async () => {
 	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
 	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550/credits?language=zh-CN", headers: {} };
-	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	await applyTmdbRequestRules(request, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+	});
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -2305,22 +3032,43 @@ test("独立 credits 请求时从详情接口获取标题用于 fallback 搜索"
 			fetched.push(req.url);
 			if (req.url.includes("/movie/550/external_ids")) return { ok: true, status: 200, body: JSON.stringify({ imdb_id: "tt37118307" }) };
 			if (req.url.includes("/movie/550") && !req.url.includes("credits") && !req.url.includes("external_ids")) {
-				return { ok: true, status: 200, body: JSON.stringify({ title: "九门", release_date: "2026-01-01", origin_country: ["CN"] }) };
+				return {
+					ok: true,
+					status: 200,
+					body: JSON.stringify({ title: "九门", release_date: "2026-01-01", origin_country: ["CN"] }),
+				};
 			}
 			if (req.url.includes("frodo.douban.com/api/v2/search/suggestion")) {
 				const url = new URL(req.url);
 				const q = url.searchParams.get("q");
 				if (q === "tt37118307") return { ok: true, status: 200, body: JSON.stringify({ cards: [] }) };
-				if (q === "九门") return { ok: true, status: 200, body: JSON.stringify({ cards: [{ target_id: "1234567", target_type: "movie", target: { title: "九门", year: "2026" } }] }) };
+				if (q === "九门")
+					return {
+						ok: true,
+						status: 200,
+						body: JSON.stringify({
+							cards: [{ target_id: "1234567", target_type: "movie", target: { title: "九门", year: "2026" } }],
+						}),
+					};
 			}
 			if (req.url.includes("frodo.douban.com/api/v2/movie/1234567/credits_stats")) {
-				return { ok: true, status: 200, body: JSON.stringify({ items: [{ name: "演员甲", simple_character: "饰 角色", category: "演员" }] }) };
+				return {
+					ok: true,
+					status: 200,
+					body: JSON.stringify({ items: [{ name: "演员甲", simple_character: "饰 角色", category: "演员" }] }),
+				};
 			}
 			return { ok: false, status: 404, body: "{}" };
 		},
 	});
-	assert.ok(fetched.some(url => url.includes("/movie/550") && !url.includes("credits") && !url.includes("external_ids")), "should fetch detail for title");
-	assert.ok(fetched.some(url => url.includes("q=%E4%B9%9D%E9%97%A8")), "should search by title from detail");
+	assert.ok(
+		fetched.some(url => url.includes("/movie/550") && !url.includes("credits") && !url.includes("external_ids")),
+		"should fetch detail for title",
+	);
+	assert.ok(
+		fetched.some(url => url.includes("q=%E4%B9%9D%E9%97%A8")),
+		"should search by title from detail",
+	);
 	assert.equal(JSON.parse(response.body).cast[0].character, "角色");
 	assert.equal(storage.store.dj_tmdb_proxy_cache.stores.movie["550"].title, "九门");
 	assert.equal(storage.store.dj_tmdb_proxy_cache.stores.movie["550"].year, "2026");
@@ -2346,7 +3094,9 @@ test("标题缓存命中时不请求详情接口", async () => {
 		},
 	});
 	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550/credits?language=zh-CN", headers: {} };
-	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	await applyTmdbRequestRules(request, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+	});
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -2363,10 +3113,21 @@ test("标题缓存命中时不请求详情接口", async () => {
 				const url = new URL(req.url);
 				const q = url.searchParams.get("q");
 				if (q === "tt37118307") return { ok: true, status: 200, body: JSON.stringify({ cards: [] }) };
-				if (q === "九门") return { ok: true, status: 200, body: JSON.stringify({ cards: [{ target_id: "1234567", target_type: "movie", target: { title: "九门", year: "2026" } }] }) };
+				if (q === "九门")
+					return {
+						ok: true,
+						status: 200,
+						body: JSON.stringify({
+							cards: [{ target_id: "1234567", target_type: "movie", target: { title: "九门", year: "2026" } }],
+						}),
+					};
 			}
 			if (req.url.includes("frodo.douban.com/api/v2/movie/1234567/credits_stats")) {
-				return { ok: true, status: 200, body: JSON.stringify({ items: [{ name: "演员甲", simple_character: "饰 角色", category: "演员" }] }) };
+				return {
+					ok: true,
+					status: 200,
+					body: JSON.stringify({ items: [{ name: "演员甲", simple_character: "饰 角色", category: "演员" }] }),
+				};
 			}
 			return { ok: false, status: 404, body: "{}" };
 		},
@@ -2377,8 +3138,14 @@ test("标题缓存命中时不请求详情接口", async () => {
 
 test("fallback 搜索命中后缓存 doubanId 供后续请求复用", async () => {
 	const storage = createMemoryStorage({ dj_tmdb_proxy_cache: createEmptyCache() });
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/tv/123456?language=zh-CN&append_to_response=credits", headers: {} };
-	await applyTmdbRequestRules(request, { argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true } });
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/tv/123456?language=zh-CN&append_to_response=credits",
+		headers: {},
+	};
+	await applyTmdbRequestRules(request, {
+		argument: { aliasFallback: false, aggregateCredits: false, characterTranslation: true },
+	});
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -2398,11 +3165,22 @@ test("fallback 搜索命中后缓存 doubanId 供后续请求复用", async () =
 				const url = new URL(req.url);
 				const q = url.searchParams.get("q");
 				if (q === "tt37118307") return { ok: true, status: 200, body: JSON.stringify({ cards: [] }) };
-				if (q === "九门") return { ok: true, status: 200, body: JSON.stringify({ cards: [{ target_id: "1234567", target_type: "tv", target: { title: "九门", year: "2026" } }] }) };
+				if (q === "九门")
+					return {
+						ok: true,
+						status: 200,
+						body: JSON.stringify({
+							cards: [{ target_id: "1234567", target_type: "tv", target: { title: "九门", year: "2026" } }],
+						}),
+					};
 			}
 			if (req.url.includes("frodo.douban.com/api/v2/tv/1234567/seasons")) return { ok: true, status: 200, body: JSON.stringify({ seasons: [] }) };
 			if (req.url.includes("frodo.douban.com/api/v2/movie/1234567/credits_stats")) {
-				return { ok: true, status: 200, body: JSON.stringify({ items: [{ name: "演员甲", simple_character: "饰 角色", category: "演员" }] }) };
+				return {
+					ok: true,
+					status: 200,
+					body: JSON.stringify({ items: [{ name: "演员甲", simple_character: "饰 角色", category: "演员" }] }),
+				};
 			}
 			return { ok: false, status: 404, body: "{}" };
 		},
@@ -2427,7 +3205,9 @@ test("zh-CN 详情中仅补全 TMDB 未翻译的 10765/10768", async () => {
 			],
 		}),
 	};
-	await applyTmdbResponseRules(request, response, { argument: { aliasFallback: false, characterTranslation: false, aggregateCredits: false } });
+	await applyTmdbResponseRules(request, response, {
+		argument: { aliasFallback: false, characterTranslation: false, aggregateCredits: false },
+	});
 	assert.deepEqual(
 		JSON.parse(response.body).genres.map(genre => genre.name),
 		["动画", "喜剧", "科幻奇幻", "动作冒险", "战争政治"],
@@ -2446,7 +3226,9 @@ test("zh-TW 详情中的英文类型替换为台湾译名", async () => {
 			],
 		}),
 	};
-	await applyTmdbResponseRules(request, response, { argument: { aliasFallback: false, characterTranslation: false, aggregateCredits: false } });
+	await applyTmdbResponseRules(request, response, {
+		argument: { aliasFallback: false, characterTranslation: false, aggregateCredits: false },
+	});
 	assert.deepEqual(
 		JSON.parse(response.body).genres.map(genre => genre.name),
 		["科幻奇幻", "戰爭政治"],
@@ -2460,7 +3242,9 @@ test("zh-HK 详情中的类型使用香港译名", async () => {
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({ genres: [{ id: 10768, name: "War & Politics" }] }),
 	};
-	await applyTmdbResponseRules(request, response, { argument: { aliasFallback: false, characterTranslation: false, aggregateCredits: false } });
+	await applyTmdbResponseRules(request, response, {
+		argument: { aliasFallback: false, characterTranslation: false, aggregateCredits: false },
+	});
 	assert.equal(JSON.parse(response.body).genres[0].name, "戰爭政治");
 });
 
@@ -2477,7 +3261,9 @@ test("表外的类型即使 TMDB 返回英文也不改写", async () => {
 			],
 		}),
 	};
-	await applyTmdbResponseRules(request, response, { argument: { aliasFallback: false, characterTranslation: false, aggregateCredits: false } });
+	await applyTmdbResponseRules(request, response, {
+		argument: { aliasFallback: false, characterTranslation: false, aggregateCredits: false },
+	});
 	assert.deepEqual(
 		JSON.parse(response.body).genres.map(genre => genre.name),
 		["Drama", "Thriller", "Action & Adventure"],
@@ -2491,7 +3277,9 @@ test("非中文请求不改写类型名称", async () => {
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({ genres: [{ id: 10765, name: "Sci-Fi & Fantasy" }] }),
 	};
-	await applyTmdbResponseRules(request, response, { argument: { aliasFallback: false, characterTranslation: false, aggregateCredits: false } });
+	await applyTmdbResponseRules(request, response, {
+		argument: { aliasFallback: false, characterTranslation: false, aggregateCredits: false },
+	});
 	assert.equal(JSON.parse(response.body).genres[0].name, "Sci-Fi & Fantasy");
 });
 
@@ -2507,7 +3295,9 @@ test("TMDB 已返回中文的类型保持原值，不做简繁转换", async () 
 			],
 		}),
 	};
-	await applyTmdbResponseRules(request, response, { argument: { aliasFallback: false, characterTranslation: false, aggregateCredits: false } });
+	await applyTmdbResponseRules(request, response, {
+		argument: { aliasFallback: false, characterTranslation: false, aggregateCredits: false },
+	});
 	assert.deepEqual(
 		JSON.parse(response.body).genres.map(genre => genre.name),
 		["科幻奇幻", "战争政治"],
@@ -2527,7 +3317,9 @@ test("zh 无区域按简体、zh-Hant-TW 与 zh-HK 按繁体", async () => {
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({ genres: [{ id: 10768, name: "War & Politics" }] }),
 		};
-		await applyTmdbResponseRules(request, response, { argument: { aliasFallback: false, characterTranslation: false, aggregateCredits: false } });
+		await applyTmdbResponseRules(request, response, {
+			argument: { aliasFallback: false, characterTranslation: false, aggregateCredits: false },
+		});
 		assert.equal(JSON.parse(response.body).genres[0].name, expected, `${language} 应为 ${expected}`);
 	}
 });
@@ -2544,7 +3336,9 @@ test("未收录的类型 ID 保留 TMDB 返回的名称", async () => {
 			],
 		}),
 	};
-	await applyTmdbResponseRules(request, response, { argument: { aliasFallback: false, characterTranslation: false, aggregateCredits: false } });
+	await applyTmdbResponseRules(request, response, {
+		argument: { aliasFallback: false, characterTranslation: false, aggregateCredits: false },
+	});
 	assert.deepEqual(
 		JSON.parse(response.body).genres.map(genre => genre.name),
 		["Unknown Genre", "科幻奇幻"],
@@ -2556,9 +3350,16 @@ test("genres 列表接口也按请求语言补全中文", async () => {
 	const response = {
 		status: 200,
 		headers: { "content-type": "application/json" },
-		body: JSON.stringify({ genres: [{ id: 10765, name: "Sci-Fi & Fantasy" }, { id: 10768, name: "War & Politics" }] }),
+		body: JSON.stringify({
+			genres: [
+				{ id: 10765, name: "Sci-Fi & Fantasy" },
+				{ id: 10768, name: "War & Politics" },
+			],
+		}),
 	};
-	await applyTmdbResponseRules(request, response, { argument: { aliasFallback: false, characterTranslation: false, aggregateCredits: false } });
+	await applyTmdbResponseRules(request, response, {
+		argument: { aliasFallback: false, characterTranslation: false, aggregateCredits: false },
+	});
 	assert.deepEqual(
 		JSON.parse(response.body).genres.map(genre => genre.name),
 		["科幻奇幻", "战争政治"],
@@ -2588,16 +3389,22 @@ test("反代已有环境变量时不会请求后端密钥端点", async () => {
 	let keyFetches = 0;
 	const original = globalThis.fetch;
 	globalThis.fetch = async (resource, init) => {
-		const url = typeof resource === "string" ? resource : resource?.url ?? "";
+		const url = typeof resource === "string" ? resource : (resource?.url ?? "");
 		if (url.endsWith("/key")) {
 			keyFetches += 1;
-			return new Response(JSON.stringify({ apiKey: ROTATED_API_KEY }), { status: 200, headers: { "content-type": "application/json" } });
+			return new Response(JSON.stringify({ apiKey: ROTATED_API_KEY }), {
+				status: 200,
+				headers: { "content-type": "application/json" },
+			});
 		}
 		return original(resource, init);
 	};
 	try {
 		const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN", headers: {} };
-		await applyTmdbRequestRules(request, { argument: { aliasFallback: true, cacheBackend: "https://cache.test" }, env: TEST_ENV });
+		await applyTmdbRequestRules(request, {
+			argument: { aliasFallback: true, cacheBackend: "https://cache.test" },
+			env: TEST_ENV,
+		});
 		assert.equal(new URL(request.url).searchParams.get("api_key"), TEST_API_KEY);
 		assert.equal(keyFetches, 0);
 	} finally {
@@ -2630,18 +3437,33 @@ test("客户端自带 key 失效时不会刷新后端 API Key", async () => {
 	let keyFetches = 0;
 	const original = globalThis.fetch;
 	globalThis.fetch = async (resource, init) => {
-		const url = typeof resource === "string" ? resource : resource?.url ?? "";
+		const url = typeof resource === "string" ? resource : (resource?.url ?? "");
 		if (url.endsWith("/key")) {
 			keyFetches += 1;
-			return new Response(JSON.stringify({ apiKey: ROTATED_API_KEY }), { status: 200, headers: { "content-type": "application/json" } });
+			return new Response(JSON.stringify({ apiKey: ROTATED_API_KEY }), {
+				status: 200,
+				headers: { "content-type": "application/json" },
+			});
 		}
 		return original(resource, init);
 	};
 	try {
 		await withScriptRuntime(async () => {
-			const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?api_key=client-key&language=zh-CN", headers: {} };
-			const response = { status: 401, headers: { "content-type": "application/json" }, body: JSON.stringify({ status_code: 7, status_message: "Invalid API key" }) };
-			await applyTmdbResponseRules(request, response, { argument: { aliasFallback: true, cacheBackend: "https://cache.test" }, env: {}, storage });
+			const request = {
+				method: "GET",
+				url: "https://api.themoviedb.org/3/movie/550?api_key=client-key&language=zh-CN",
+				headers: {},
+			};
+			const response = {
+				status: 401,
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ status_code: 7, status_message: "Invalid API key" }),
+			};
+			await applyTmdbResponseRules(request, response, {
+				argument: { aliasFallback: true, cacheBackend: "https://cache.test" },
+				env: {},
+				storage,
+			});
 		});
 		assert.equal(keyFetches, 0);
 	} finally {
@@ -2650,9 +3472,15 @@ test("客户端自带 key 失效时不会刷新后端 API Key", async () => {
 });
 
 test("TMDB 返回 401 时脚本端刷新 API Key 并重试列表详情子请求", async () => {
-	const storage = createMemoryStorage({ dj_tmdb_proxy_api_key: { key: "stale-key", expiresAt: Date.now() + CACHE_TTL_MS } });
+	const storage = createMemoryStorage({
+		dj_tmdb_proxy_api_key: { key: "stale-key", expiresAt: Date.now() + CACHE_TTL_MS },
+	});
 	const request = { method: "GET", url: "https://api.tmdb.org/3/search/movie?language=zh-CN&query=test", headers: {} };
-	const response = { status: 200, headers: { "content-type": "application/json" }, body: JSON.stringify({ results: [{ id: 550, title: "Fight Club" }] }) };
+	const response = {
+		status: 200,
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ results: [{ id: 550, title: "Fight Club" }] }),
+	};
 	const requestedKeys = [];
 	remoteApiKey = ROTATED_API_KEY;
 	try {
@@ -2664,8 +3492,17 @@ test("TMDB 返回 401 时脚本端刷新 API Key 并重试列表详情子请求"
 				fetcher: async aliasRequest => {
 					const key = new URL(aliasRequest.url).searchParams.get("api_key");
 					requestedKeys.push(key);
-					if (key === "stale-key") return { ok: false, status: 401, body: JSON.stringify({ status_code: 7, status_message: "Invalid API key" }) };
-					return { ok: true, status: 200, body: JSON.stringify({ alternative_titles: { titles: [{ iso_3166_1: "CN", title: "搏击俱乐部" }] } }) };
+					if (key === "stale-key")
+						return {
+							ok: false,
+							status: 401,
+							body: JSON.stringify({ status_code: 7, status_message: "Invalid API key" }),
+						};
+					return {
+						ok: true,
+						status: 200,
+						body: JSON.stringify({ alternative_titles: { titles: [{ iso_3166_1: "CN", title: "搏击俱乐部" }] } }),
+					};
 				},
 			});
 		});
@@ -2675,4 +3512,70 @@ test("TMDB 返回 401 时脚本端刷新 API Key 并重试列表详情子请求"
 	assert.deepEqual(requestedKeys, ["stale-key", ROTATED_API_KEY]);
 	assert.equal(storage.store.dj_tmdb_proxy_api_key.key, ROTATED_API_KEY);
 	assert.equal(JSON.parse(response.body).results[0].title, "搏击俱乐部");
+});
+
+test("开启 tmdbProxy 时源 API 请求 302 到反代域名", async () => {
+	const request = { method: "GET", url: "https://api.tmdb.org/3/movie/550?language=zh-CN", headers: {} };
+	const result = await applyTmdbRequestRules(request, { argument: { tmdbProxy: true }, env: TEST_ENV });
+	assert.ok(result.$response, "should return redirect response");
+	assert.equal(result.$response.status, 302);
+	const location = new URL(result.$response.headers.Location);
+	assert.equal(location.hostname, "api.tmdb.demojameson.cn");
+	assert.equal(location.pathname, "/3/movie/550");
+	assert.equal(location.searchParams.get("language"), "zh-CN");
+	assert.equal(location.searchParams.get("api_key"), TEST_API_KEY);
+});
+
+test("默认关闭时 api.themoviedb.org 不重定向", async () => {
+	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN", headers: {} };
+	const result = await applyTmdbRequestRules(request, { argument: {}, env: TEST_ENV });
+	assert.equal(result.$response, undefined);
+	assert.equal(new URL(request.url).hostname, "api.themoviedb.org");
+});
+
+test("开启 tmdbProxy 时源图片请求 302 到反代图片域名", async () => {
+	const request = { method: "GET", url: "https://image.tmdb.org/t/p/w500/abc.jpg", headers: {} };
+	const result = await applyTmdbRequestRules(request, { argument: { tmdbProxy: true } });
+	assert.ok(result.$response, "should return redirect response");
+	assert.equal(result.$response.status, 302);
+	const location = new URL(result.$response.headers.Location);
+	assert.equal(location.hostname, "image.tmdb.demojameson.cn");
+	assert.equal(location.pathname, "/t/p/w500/abc.jpg");
+	assert.equal(location.searchParams.get("api_key"), null);
+});
+
+test("默认关闭时 image.tmdb.org 不重定向", async () => {
+	const request = { method: "GET", url: "https://image.tmdb.org/t/p/w500/abc.jpg", headers: {} };
+	const result = await applyTmdbRequestRules(request, { argument: {} });
+	assert.equal(result.$response, undefined);
+	assert.equal(new URL(request.url).hostname, "image.tmdb.org");
+});
+
+test("反代域名请求不再重定向（避免死循环）并按 TMDB 处理", async () => {
+	const request = { method: "GET", url: "https://api.tmdb.demojameson.cn/3/movie/550?language=zh-CN", headers: {} };
+	const result = await applyTmdbRequestRules(request, {
+		argument: { tmdbProxy: true },
+		env: TEST_ENV,
+	});
+	assert.equal(result.$response, undefined);
+	const url = new URL(request.url);
+	assert.equal(url.hostname, "api.tmdb.demojameson.cn");
+	assert.equal(url.searchParams.get("append_to_response"), "alternative_titles,external_ids");
+});
+
+test("反代域名被识别为 TMDB 主机但不属于源域名", () => {
+	assert.equal(isTmdbHost("api.tmdb.demojameson.cn"), true);
+	assert.equal(isTmdbImageHost("image.tmdb.demojameson.cn"), true);
+	assert.equal(isTmdbApiOriginHost("api.tmdb.demojameson.cn"), false);
+	assert.equal(isTmdbApiOriginHost("api.tmdb.org"), true);
+	assert.equal(isTmdbImageOriginHost("image.tmdb.demojameson.cn"), false);
+	assert.equal(isTmdbImageOriginHost("image.tmdb.org"), true);
+});
+
+test("反代配置为脚本专用，proxy.* 查询覆盖被忽略且从 URL 移除", () => {
+	const url = new URL("https://api.tmdb.org/3/movie/1?proxy.tmdbProxy=1&language=zh-CN");
+	const config = resolveProxyConfig({ argument: {}, env: {}, url });
+	assert.equal(config.tmdbProxy, false);
+	assert.equal(url.searchParams.has("proxy.tmdbProxy"), false);
+	assert.equal(url.searchParams.get("language"), "zh-CN");
 });

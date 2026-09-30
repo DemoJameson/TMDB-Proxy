@@ -90,7 +90,12 @@ async function fetch(resource) {
 	request.headers = Object.fromEntries(Object.entries(request.headers).filter(([key]) => !["content-length", "Content-Length"].includes(key)));
 	if ($app === "Quantumult X") {
 		const response = await globalThis.$task.fetch(request);
-		return { ok: /^2\d\d$/.test(response.statusCode), status: response.statusCode, body: response.body, headers: response.headers ?? {} };
+		return {
+			ok: /^2\d\d$/.test(response.statusCode),
+			status: response.statusCode,
+			body: response.body,
+			headers: response.headers ?? {},
+		};
 	}
 	if (globalThis.$httpClient) {
 		return await new Promise((resolve, reject) => {
@@ -103,7 +108,12 @@ async function fetch(resource) {
 	const { url, bodyBytes, ...init } = request;
 	if (bodyBytes !== undefined && init.body === undefined) init.body = bodyBytes;
 	const response = await globalThis.fetch(url, init);
-	return { ok: response.ok, status: response.status, body: await response.text(), headers: Object.fromEntries(response.headers.entries()) };
+	return {
+		ok: response.ok,
+		status: response.status,
+		body: await response.text(),
+		headers: Object.fromEntries(response.headers.entries()),
+	};
 }
 
 export { $app, Console, done, fetch, Storage, setPath };

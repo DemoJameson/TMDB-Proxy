@@ -9,7 +9,7 @@
 		"indentStyle": "tab",
 		"indentWidth": 2,
 		"lineEnding": "lf",
-		"lineWidth": 320
+		"lineWidth": 180
 	},
 	"javascript": {
 		"formatter": {

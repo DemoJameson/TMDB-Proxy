@@ -1,0 +1,5 @@
+# 统一使用 LF 行尾，与 biome.json 的 lineEnding: "lf" 保持一致，避免 Windows
+# 上 core.autocrlf=true 检出为 CRLF 导致 format:check 失败。
+# Enforce LF line endings to match biome.json's lineEnding: "lf" and avoid CRLF
+# checkouts on Windows (core.autocrlf=true) breaking format:check.
+* text=auto eol=lf

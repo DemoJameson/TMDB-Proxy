@@ -72,7 +72,11 @@ class TmdbApiKeyProvider {
 		if (this.pending) return this.pending;
 		this.pending = (async () => {
 			try {
-				const response = await runtimeFetch({ url: `${this.backendUrl}/key`, method: "GET", headers: { Accept: "application/json" } });
+				const response = await runtimeFetch({
+					url: `${this.backendUrl}/key`,
+					method: "GET",
+					headers: { Accept: "application/json" },
+				});
 				if (!response?.ok && !(response?.status >= 200 && response?.status < 300)) return undefined;
 				const payload = JSON.parse(response.body ?? "{}");
 				const key = typeof payload?.apiKey === "string" ? payload.apiKey.trim() : "";
