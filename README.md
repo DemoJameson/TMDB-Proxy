@@ -12,7 +12,7 @@ TMDB API v3 反向代理与本地代理工具脚本模块。支持 Vercel、Clou
 
 脚本直接 MITM 以下主机，仅在补齐中文数据或更新 API Key 时访问缓存后端：
 
-`api.themoviedb.org`、`api.tmdb.org`、`vidora-tmdb.wwmm.date`、`image.tmdb.org`、`forwardinfo.vvebo.vip`
+`api.themoviedb.org`、`api.tmdb.org`、`vidora-tmdb.wwmm.date`、`image.tmdb.org`、`forwardinfo.vvebo.vip`、`tmdb-api.demojameson.cn`、`tmdb-image.demojameson.cn`
 
 脚本链接：
 
@@ -25,13 +25,15 @@ TMDB API v3 反向代理与本地代理工具脚本模块。支持 Vercel、Clou
 
 参数：
 
-| 参数 | 默认值 | 说明 |
-| --- | --- | --- |
-| `aliasFallback` | `true` | 缺少中文标题时，使用别名补全 |
-| `characterTranslation` | `true` | 使用豆瓣数据汉化演职员角色名 |
-| `aggregateCredits` | `true` | 演职人员从主演改为整剧/整季聚合演员 |
-| `imageWebp` | `true` | 请求 TMDB 图片时优先 WebP，更省流量 |
-| `cacheBackend` | `https://tmdb-proxy.demojameson.de5.net` | 远端缓存与 API Key 地址，留空用默认 |
+| 参数 | 默认值 | 说明                                                 |
+| --- | --- |------------------------------------------------------|
+| `aliasFallback` | `true` | 缺少中文标题时，使用别名补全                         |
+| `characterTranslation` | `true` | 使用豆瓣数据汉化演职员角色名                         |
+| `aggregateCredits` | `true` | 演职人员从主演改为整剧/整季聚合演员                  |
+| `imageWebp` | `true` | 请求 TMDB 图片时优先 WebP，更省流量                  |
+| `cacheBackend` | `https://tmdb-proxy.demojameson.de5.net` | 远端缓存与 API Key 地址，留空用默认                  |
+| `reverseProxyApi` | `false` | 将 TMDB API 请求重定向到可直连的地址，可能不如挂梯快 |
+| `reverseProxyImage` | `false` | 将 TMDB 图片请求重定向到可直连的地址，可能不如挂梯快 |
 
 配置优先级：默认值 < BoxJs < 插件参数。
 

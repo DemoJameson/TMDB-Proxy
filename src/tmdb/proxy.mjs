@@ -1,12 +1,12 @@
-import { fetch as utilFetch, Storage } from "../runtime/script.mjs";
+import { Storage, fetch as utilFetch } from "../runtime/script.mjs";
 import { applyChineseAliasFallback, applyChineseAliasFallbackToList } from "./aliases.mjs";
 import { createTmdbApiKeyProvider } from "./api-key.mjs";
-import { applyCharacterTranslation } from "./characters.mjs";
 import { BlobCacheStore, RemoteCacheStore, TieredCacheStore } from "./cache-store.mjs";
+import { applyCharacterTranslation } from "./characters.mjs";
 import { resolveProxyConfig } from "./config.mjs";
 import { normalizeAggregateCredits } from "./credits.mjs";
 import { applyGenreTranslation } from "./genres.mjs";
-import { deleteHeader, readHeader, setHeader, STATE_HEADER } from "./headers.mjs";
+import { deleteHeader, readHeader, STATE_HEADER, setHeader } from "./headers.mjs";
 import { applyTmdbRequestRules, encodeState, fetchTmdbWithNativeFetch } from "./request-rules.mjs";
 
 function getDefaultFetcher() {
@@ -46,7 +46,14 @@ async function applyTmdbResponseRules(request, response, options = {}) {
 	deleteHeader(request.headers, STATE_HEADER);
 	const config = resolveProxyConfig({ argument: options.argument, env: options.env });
 	const cacheStore = options.cacheStore ?? createCacheStore(config, options.storage);
-	const apiKeyProvider = options.apiKeyProvider ?? createTmdbApiKeyProvider({ env: options.env, backendUrl: config.cacheBackend, storage: options.storage, now: options.now });
+	const apiKeyProvider =
+		options.apiKeyProvider ??
+		createTmdbApiKeyProvider({
+			env: options.env,
+			backendUrl: config.cacheBackend,
+			storage: options.storage,
+			now: options.now,
+		});
 	// TMDB 返回 401 且失败的是本代理注入的 key，才向后端拉取最新 key；客户端自带凭证或 Forward 反代自身的 401 不处理。
 	// Only refresh when TMDB rejects the key this proxy injected; client-supplied credentials and Forward proxy 401s are left alone.
 	if (response.status === 401 && apiKeyProvider.isOwnKey(new URL(request.url).searchParams.get("api_key"))) await apiKeyProvider.handleUnauthorized(options.waitUntil);
@@ -105,7 +112,7 @@ async function applyTmdbResponseRules(request, response, options = {}) {
 					for (const role of castItem.roles) role.character = character;
 				}
 			}
-			delete body.credits;
+			body.credits = undefined;
 		}
 		response.body = JSON.stringify(body);
 		deleteHeader(response.headers, "content-length");

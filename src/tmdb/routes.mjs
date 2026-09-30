@@ -1,6 +1,10 @@
-const TMDB_HOSTS = new Set(["api.themoviedb.org", "api.tmdb.org", "vidora-tmdb.wwmm.date"]);
+const TMDB_HOSTS = new Set(["api.themoviedb.org", "api.tmdb.org", "vidora-tmdb.wwmm.date", "tmdb-api.demojameson.cn"]);
 
-const TMDB_IMAGE_HOSTS = new Set(["image.tmdb.org"]);
+const TMDB_IMAGE_HOSTS = new Set(["image.tmdb.org", "tmdb-image.demojameson.cn"]);
+
+const TMDB_API_ORIGIN_HOSTS = new Set(["api.themoviedb.org", "api.tmdb.org"]);
+
+const TMDB_IMAGE_ORIGIN_HOSTS = new Set(["image.tmdb.org"]);
 
 const FORWARD_HOSTS = new Set(["forwardinfo.vvebo.vip"]);
 
@@ -16,6 +20,16 @@ function isTmdbHost(hostname) {
 
 function isTmdbImageHost(hostname) {
 	return TMDB_IMAGE_HOSTS.has(String(hostname).toLowerCase());
+}
+
+// 源域名：用于判断是否需要重定向到自建反代域名（反代域名本身不属于源域名，避免死循环）。
+// Origin hosts: used to decide whether to redirect to the self-hosted reverse-proxy host (the proxy host itself is excluded to avoid loops).
+function isTmdbApiOriginHost(hostname) {
+	return TMDB_API_ORIGIN_HOSTS.has(String(hostname).toLowerCase());
+}
+
+function isTmdbImageOriginHost(hostname) {
+	return TMDB_IMAGE_ORIGIN_HOSTS.has(String(hostname).toLowerCase());
 }
 
 function parseTmdbRoute(input) {
@@ -163,9 +177,11 @@ export {
 	hasHan,
 	isChineseLanguage,
 	isForwardHost,
+	isTmdbApiOriginHost,
 	isTmdbCompatiblePath,
 	isTmdbHost,
 	isTmdbImageHost,
+	isTmdbImageOriginHost,
 	parseTmdbRoute,
 	rewriteAppendToResponse,
 	rewriteForwardToTmdbUrl,

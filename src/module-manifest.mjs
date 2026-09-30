@@ -53,6 +53,22 @@ const argumentFields = [
 		tag: "缓存后端",
 		desc: "远端缓存与 API Key 地址，留空使用默认地址",
 	},
+	{
+		key: "reverseProxyApi",
+		defaultValue: false,
+		type: "boolean",
+		tag: "反代 API",
+		desc: "将 TMDB API 请求重定向到可直连的地址，可能不如挂梯快",
+		scriptOnly: true,
+	},
+	{
+		key: "reverseProxyImage",
+		defaultValue: false,
+		type: "boolean",
+		tag: "反代图片",
+		desc: "将 TMDB 图片请求重定向到可直连的地址，可能不如挂梯快",
+		scriptOnly: true,
+	},
 ];
 
 const ALL_ARGUMENT_KEYS = argumentFields.map(field => field.key);
@@ -62,7 +78,16 @@ const scriptRules = [
 		title: "TMDB Request",
 		comment: "追加 alternative_titles，并改写 TV credits 请求",
 		phase: "http-request",
-		pattern: String.raw`^https:\/\/(?:api\.(?:themoviedb|tmdb)\.org|vidora-tmdb\.wwmm\.date)\/3\/(?:movie|tv|collection)\/\d+(?:(?:\/season\/\d+)?\/credits|\/alternative_titles)?(?:\?.*)?$`,
+		pattern: String.raw`^https:\/\/api\.(?:themoviedb|tmdb)\.org\/3\/.*$`,
+		scriptFile: REQUEST_SCRIPT_FILE,
+		timeout: 10,
+		argumentKeys: ALL_ARGUMENT_KEYS,
+	},
+	{
+		title: "vidora TMDB Request",
+		comment: "vidora 播放器反代请求追加 alternative_titles，并改写 TV credits 请求",
+		phase: "http-request",
+		pattern: String.raw`^https:\/\/vidora-tmdb\.wwmm\.date\/3\/(?:movie|tv|collection)\/\d+(?:(?:\/season\/\d+)?\/credits|\/alternative_titles)?(?:\?.*)?$`,
 		scriptFile: REQUEST_SCRIPT_FILE,
 		timeout: 10,
 		argumentKeys: ALL_ARGUMENT_KEYS,
@@ -74,6 +99,35 @@ const scriptRules = [
 		pattern: String.raw`^https:\/\/image\.tmdb\.org\/.*$`,
 		scriptFile: REQUEST_SCRIPT_FILE,
 		timeout: 10,
+		argumentKeys: ALL_ARGUMENT_KEYS,
+	},
+	{
+		title: "TMDB API 反代请求",
+		comment: "反代域名 tmdb-api.demojameson.cn 的请求按 TMDB 处理",
+		phase: "http-request",
+		pattern: String.raw`^https:\/\/tmdb-api\.demojameson\.cn\/3\/.*$`,
+		scriptFile: REQUEST_SCRIPT_FILE,
+		timeout: 10,
+		argumentKeys: ALL_ARGUMENT_KEYS,
+	},
+	{
+		title: "TMDB 图片反代请求",
+		comment: "反代域名 tmdb-image.demojameson.cn 的图片请求优先 WebP",
+		phase: "http-request",
+		pattern: String.raw`^https:\/\/tmdb-image\.demojameson\.cn\/.*$`,
+		scriptFile: REQUEST_SCRIPT_FILE,
+		timeout: 10,
+		argumentKeys: ALL_ARGUMENT_KEYS,
+	},
+	{
+		title: "TMDB API 反代响应",
+		comment: "反代域名响应缺中文标题时回填别名，演职员角色名汉化",
+		phase: "http-response",
+		pattern: String.raw`^https:\/\/tmdb-api\.demojameson\.cn\/3\/.*$`,
+		scriptFile: RESPONSE_SCRIPT_FILE,
+		timeout: 60,
+		requiresBody: true,
+		maxSize: 0,
 		argumentKeys: ALL_ARGUMENT_KEYS,
 	},
 	{
@@ -109,7 +163,15 @@ const scriptRules = [
 	},
 ];
 
-const mitmHosts = ["api.themoviedb.org", "api.tmdb.org", "vidora-tmdb.wwmm.date", "image.tmdb.org", "forwardinfo.vvebo.vip"];
+const mitmHosts = [
+	"api.themoviedb.org",
+	"api.tmdb.org",
+	"vidora-tmdb.wwmm.date",
+	"image.tmdb.org",
+	"forwardinfo.vvebo.vip",
+	"tmdb-api.demojameson.cn",
+	"tmdb-image.demojameson.cn",
+];
 
 const boxjs = {
 	id: "demojameson.app.sub",

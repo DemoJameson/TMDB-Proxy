@@ -202,9 +202,22 @@ export function extractFallbackInfoFromBody(body, mediaType) {
 // Extracts production countries from body (origin_country first, then production_countries).
 export function extractOriginCountries(body) {
 	const countries = Array.isArray(body?.origin_country) ? body.origin_country : [];
-	if (countries.length > 0) return countries.map(c => String(c ?? "").trim().toUpperCase()).filter(Boolean);
+	if (countries.length > 0)
+		return countries
+			.map(c =>
+				String(c ?? "")
+					.trim()
+					.toUpperCase(),
+			)
+			.filter(Boolean);
 	if (Array.isArray(body?.production_countries)) {
-		return body.production_countries.map(c => String(c?.iso_3166_1 ?? "").trim().toUpperCase()).filter(Boolean);
+		return body.production_countries
+			.map(c =>
+				String(c?.iso_3166_1 ?? "")
+					.trim()
+					.toUpperCase(),
+			)
+			.filter(Boolean);
 	}
 	return [];
 }

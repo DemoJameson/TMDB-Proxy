@@ -10,18 +10,28 @@ characterTranslation = switch, "true", tag=中文角色名, desc=使用豆瓣数
 aggregateCredits = switch, "true", tag=聚合演职人员, desc=演职人员数据从主演改为整剧/整季演员
 imageWebp = switch, "true", tag=WebP 图片, desc=请求 TMDB 图片时优先获取 WebP 格式，更省流量
 cacheBackend = input, "https://tmdb-proxy.demojameson.de5.net", tag=缓存后端, desc=远端缓存与 API Key 地址，留空使用默认地址
+reverseProxyApi = switch, "false", tag=反代 API, desc=将 TMDB API 请求重定向到可直连的地址，可能不如挂梯快
+reverseProxyImage = switch, "false", tag=反代图片, desc=将 TMDB 图片请求重定向到可直连的地址，可能不如挂梯快
 
 [Script]
 # 追加 alternative_titles，并改写 TV credits 请求
-http-request ^https:\/\/(?:api\.(?:themoviedb|tmdb)\.org|vidora-tmdb\.wwmm\.date)\/3\/(?:movie|tv|collection)\/\d+(?:(?:\/season\/\d+)?\/credits|\/alternative_titles)?(?:\?.*)?$ script-path=https://raw.githubusercontent.com/DemoJameson/TMDB-Proxy/main/dist/tmdb_proxy_request.js, timeout=10, argument=[{aliasFallback},{characterTranslation},{aggregateCredits},{imageWebp},{cacheBackend}], tag=TMDB Request
+http-request ^https:\/\/api\.(?:themoviedb|tmdb)\.org\/3\/.*$ script-path=https://raw.githubusercontent.com/DemoJameson/TMDB-Proxy/main/dist/tmdb_proxy_request.js, timeout=10, argument=[{aliasFallback},{characterTranslation},{aggregateCredits},{imageWebp},{cacheBackend},{reverseProxyApi},{reverseProxyImage}], tag=TMDB Request
+# vidora 播放器反代请求追加 alternative_titles，并改写 TV credits 请求
+http-request ^https:\/\/vidora-tmdb\.wwmm\.date\/3\/(?:movie|tv|collection)\/\d+(?:(?:\/season\/\d+)?\/credits|\/alternative_titles)?(?:\?.*)?$ script-path=https://raw.githubusercontent.com/DemoJameson/TMDB-Proxy/main/dist/tmdb_proxy_request.js, timeout=10, argument=[{aliasFallback},{characterTranslation},{aggregateCredits},{imageWebp},{cacheBackend},{reverseProxyApi},{reverseProxyImage}], tag=vidora TMDB Request
 # 请求图片时优先 WebP 格式
-http-request ^https:\/\/image\.tmdb\.org\/.*$ script-path=https://raw.githubusercontent.com/DemoJameson/TMDB-Proxy/main/dist/tmdb_proxy_request.js, timeout=10, argument=[{aliasFallback},{characterTranslation},{aggregateCredits},{imageWebp},{cacheBackend}], tag=TMDB Image Request
+http-request ^https:\/\/image\.tmdb\.org\/.*$ script-path=https://raw.githubusercontent.com/DemoJameson/TMDB-Proxy/main/dist/tmdb_proxy_request.js, timeout=10, argument=[{aliasFallback},{characterTranslation},{aggregateCredits},{imageWebp},{cacheBackend},{reverseProxyApi},{reverseProxyImage}], tag=TMDB Image Request
+# 反代域名 tmdb-api.demojameson.cn 的请求按 TMDB 处理
+http-request ^https:\/\/tmdb-api\.demojameson\.cn\/3\/.*$ script-path=https://raw.githubusercontent.com/DemoJameson/TMDB-Proxy/main/dist/tmdb_proxy_request.js, timeout=10, argument=[{aliasFallback},{characterTranslation},{aggregateCredits},{imageWebp},{cacheBackend},{reverseProxyApi},{reverseProxyImage}], tag=TMDB API 反代请求
+# 反代域名 tmdb-image.demojameson.cn 的图片请求优先 WebP
+http-request ^https:\/\/tmdb-image\.demojameson\.cn\/.*$ script-path=https://raw.githubusercontent.com/DemoJameson/TMDB-Proxy/main/dist/tmdb_proxy_request.js, timeout=10, argument=[{aliasFallback},{characterTranslation},{aggregateCredits},{imageWebp},{cacheBackend},{reverseProxyApi},{reverseProxyImage}], tag=TMDB 图片反代请求
+# 反代域名响应缺中文标题时回填别名，演职员角色名汉化
+http-response ^https:\/\/tmdb-api\.demojameson\.cn\/3\/.*$ script-path=https://raw.githubusercontent.com/DemoJameson/TMDB-Proxy/main/dist/tmdb_proxy_response.js, requires-body=true, timeout=60, argument=[{aliasFallback},{characterTranslation},{aggregateCredits},{imageWebp},{cacheBackend},{reverseProxyApi},{reverseProxyImage}], tag=TMDB API 反代响应
 # 需要修改的 forwardinfo.vvebo.vip 反代请求重定向到 TMDB
-http-request ^https:\/\/forwardinfo\.vvebo\.vip\/(?:movie|tv|collection)\/\d+(?:(?:\/season\/\d+)?\/credits|\/alternative_titles)?(?:\?.*)?$ script-path=https://raw.githubusercontent.com/DemoJameson/TMDB-Proxy/main/dist/tmdb_proxy_request.js, timeout=10, argument=[{aliasFallback},{characterTranslation},{aggregateCredits},{imageWebp},{cacheBackend}], tag=Forward 播放器反代重定向
+http-request ^https:\/\/forwardinfo\.vvebo\.vip\/(?:movie|tv|collection)\/\d+(?:(?:\/season\/\d+)?\/credits|\/alternative_titles)?(?:\?.*)?$ script-path=https://raw.githubusercontent.com/DemoJameson/TMDB-Proxy/main/dist/tmdb_proxy_request.js, timeout=10, argument=[{aliasFallback},{characterTranslation},{aggregateCredits},{imageWebp},{cacheBackend},{reverseProxyApi},{reverseProxyImage}], tag=Forward 播放器反代重定向
 # 中文详情或列表缺标题时从 alternative_titles 回填中文别名，演职员角色名使用豆瓣数据汉化
-http-response ^https:\/\/(?:api\.(?:themoviedb|tmdb)\.org|vidora-tmdb\.wwmm\.date)\/3\/.*(?:\?.*)?$ script-path=https://raw.githubusercontent.com/DemoJameson/TMDB-Proxy/main/dist/tmdb_proxy_response.js, requires-body=true, timeout=60, argument=[{aliasFallback},{characterTranslation},{aggregateCredits},{imageWebp},{cacheBackend}], tag=TMDB Response
+http-response ^https:\/\/(?:api\.(?:themoviedb|tmdb)\.org|vidora-tmdb\.wwmm\.date)\/3\/.*(?:\?.*)?$ script-path=https://raw.githubusercontent.com/DemoJameson/TMDB-Proxy/main/dist/tmdb_proxy_response.js, requires-body=true, timeout=60, argument=[{aliasFallback},{characterTranslation},{aggregateCredits},{imageWebp},{cacheBackend},{reverseProxyApi},{reverseProxyImage}], tag=TMDB Response
 # 中文列表缺标题时从 alternative_titles 回填中文别名，演职员角色名使用豆瓣数据汉化
-http-response ^https:\/\/forwardinfo\.vvebo\.vip\/.*$ script-path=https://raw.githubusercontent.com/DemoJameson/TMDB-Proxy/main/dist/tmdb_proxy_response.js, requires-body=true, timeout=60, argument=[{aliasFallback},{characterTranslation},{aggregateCredits},{imageWebp},{cacheBackend}], tag=Forward 播放器反代响应
+http-response ^https:\/\/forwardinfo\.vvebo\.vip\/.*$ script-path=https://raw.githubusercontent.com/DemoJameson/TMDB-Proxy/main/dist/tmdb_proxy_response.js, requires-body=true, timeout=60, argument=[{aliasFallback},{characterTranslation},{aggregateCredits},{imageWebp},{cacheBackend},{reverseProxyApi},{reverseProxyImage}], tag=Forward 播放器反代响应
 
 [MITM]
-hostname = api.themoviedb.org, api.tmdb.org, vidora-tmdb.wwmm.date, image.tmdb.org, forwardinfo.vvebo.vip
+hostname = api.themoviedb.org, api.tmdb.org, vidora-tmdb.wwmm.date, image.tmdb.org, forwardinfo.vvebo.vip, tmdb-api.demojameson.cn, tmdb-image.demojameson.cn

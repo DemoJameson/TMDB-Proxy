@@ -14,7 +14,9 @@
                 "@dj_tmdb_proxy_boxjs_configs.characterTranslation",
                 "@dj_tmdb_proxy_boxjs_configs.aggregateCredits",
                 "@dj_tmdb_proxy_boxjs_configs.imageWebp",
-                "@dj_tmdb_proxy_boxjs_configs.cacheBackend"
+                "@dj_tmdb_proxy_boxjs_configs.cacheBackend",
+                "@dj_tmdb_proxy_boxjs_configs.reverseProxyApi",
+                "@dj_tmdb_proxy_boxjs_configs.reverseProxyImage"
             ],
             "author": "@DemoJameson",
             "repo": "https://github.com/DemoJameson/TMDB-Proxy/tree/main/dist",
@@ -57,6 +59,20 @@
                     "val": "https://tmdb-proxy.demojameson.de5.net",
                     "type": "text",
                     "desc": "远端缓存与 API Key 地址，留空使用默认地址"
+                },
+                {
+                    "id": "@dj_tmdb_proxy_boxjs_configs.reverseProxyApi",
+                    "name": "反代 API",
+                    "val": false,
+                    "type": "boolean",
+                    "desc": "将 TMDB API 请求重定向到可直连的地址，可能不如挂梯快"
+                },
+                {
+                    "id": "@dj_tmdb_proxy_boxjs_configs.reverseProxyImage",
+                    "name": "反代图片",
+                    "val": false,
+                    "type": "boolean",
+                    "desc": "将 TMDB 图片请求重定向到可直连的地址，可能不如挂梯快"
                 }
             ],
             "descs_html": [

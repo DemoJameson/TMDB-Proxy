@@ -15,11 +15,21 @@ function isRecord(value) {
 
 function isValidEntry(entry) {
 	if (!isRecord(entry) || !Number.isFinite(entry.createdAt) || !Number.isFinite(entry.expiresAt)) return false;
-	return isRecord(entry.aliases) || typeof entry.imdbId === "string" || typeof entry.doubanId === "string" || isRecord(entry.characters) || typeof entry.title === "string" || typeof entry.year === "string" || Array.isArray(entry.originCountries);
+	return (
+		isRecord(entry.aliases) ||
+		typeof entry.imdbId === "string" ||
+		typeof entry.doubanId === "string" ||
+		isRecord(entry.characters) ||
+		typeof entry.title === "string" ||
+		typeof entry.year === "string" ||
+		Array.isArray(entry.originCountries)
+	);
 }
 
 function normalizeAliases(aliases) {
-	return Object.fromEntries(Object.entries(isRecord(aliases) ? aliases : {}).filter(([region, alias]) => ["CN", "SG", "TW", "HK"].includes(region) && typeof alias === "string" && alias.length > 0));
+	return Object.fromEntries(
+		Object.entries(isRecord(aliases) ? aliases : {}).filter(([region, alias]) => ["CN", "SG", "TW", "HK"].includes(region) && typeof alias === "string" && alias.length > 0),
+	);
 }
 
 function normalizeCharacters(characters) {
@@ -127,4 +137,21 @@ function getCacheField(cache, mediaType, id, fieldName, now = Date.now()) {
 	return entry?.[fieldName];
 }
 
-export { CACHE_KEY, CACHE_MAX_BYTES, CACHE_NEGATIVE_TTL_MS, CACHE_FULL_TTL_MS, CACHE_TTL_MS, CACHE_VERSION, createEmptyCache, getCacheEntry, getCacheField, isValidEntry, normalizeCache, pruneCache, readCache, setCacheEntry, updateCacheEntry, writeCache };
+export {
+	CACHE_FULL_TTL_MS,
+	CACHE_KEY,
+	CACHE_MAX_BYTES,
+	CACHE_NEGATIVE_TTL_MS,
+	CACHE_TTL_MS,
+	CACHE_VERSION,
+	createEmptyCache,
+	getCacheEntry,
+	getCacheField,
+	isValidEntry,
+	normalizeCache,
+	pruneCache,
+	readCache,
+	setCacheEntry,
+	updateCacheEntry,
+	writeCache,
+};
