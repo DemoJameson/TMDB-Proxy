@@ -73,10 +73,15 @@ function readUrlOverrideConfig(url) {
 	const config = {};
 	for (const field of argumentFields) {
 		const key = `proxy.${field.key}`;
-		if (url.searchParams.has(key)) {
-			config[field.key] = url.searchParams.get(key);
-			url.searchParams.delete(key);
-		}
+		if (!url.searchParams.has(key)) continue;
+		const value = url.searchParams.get(key);
+		// 无论是否 scriptOnly 都要从 URL 移除，避免 proxy.* 参数透传到上游。
+		// Always strip the proxy.* key from the URL so it is never forwarded upstream.
+		url.searchParams.delete(key);
+		// scriptOnly 字段仅脚本使用：移除但不写入配置，避免后端被 proxy.* 意外开启。
+		// scriptOnly fields are script-only: strip without applying so the backend cannot enable them via proxy.*.
+		if (field.scriptOnly) continue;
+		config[field.key] = value;
 	}
 	return config;
 }

@@ -9,19 +9,19 @@ function warnCacheError(operation, error) {
 // 抽象基类，统一缓存读写操作接口。
 // Abstract base class providing a unified cache read/write interface.
 class CacheStore {
-	async get(mediaType, id, now) {}
-	async getMany(mediaType, ids, now) {}
+	async get(_mediaType, _id, _now) {}
+	async getMany(_mediaType, _ids, _now) {}
 	// 按需获取：确保条目包含指定字段，本地缺失时回查远端。默认实现退化为 get。
 	// On-demand fetch: ensure entry contains the requested fields; remote is queried when local lacks them. Default falls back to get.
-	async getWithFields(mediaType, id, fields, now) {
+	async getWithFields(mediaType, id, _fields, now) {
 		return this.get(mediaType, id, now);
 	}
-	async getManyWithFields(mediaType, ids, fields, now) {
+	async getManyWithFields(mediaType, ids, _fields, now) {
 		return this.getMany(mediaType, ids, now);
 	}
-	async set(mediaType, id, data, ttlMs, now) {}
-	async setMany(entries, now) {}
-	async merge(mediaType, id, partialData, ttlMs, now) {}
+	async set(_mediaType, _id, _data, _ttlMs, _now) {}
+	async setMany(_entries, _now) {}
+	async merge(_mediaType, _id, _partialData, _ttlMs, _now) {}
 }
 
 // 包装现有 Storage + cache.mjs（脚本和测试用）。
@@ -268,4 +268,4 @@ async function fireCacheWrite(promise, waitUntil) {
 	}
 }
 
-export { BlobCacheStore, CacheStore, RemoteCacheStore, TieredCacheStore, fireCacheWrite };
+export { BlobCacheStore, CacheStore, fireCacheWrite, RemoteCacheStore, TieredCacheStore };

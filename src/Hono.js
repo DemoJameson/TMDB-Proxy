@@ -1,5 +1,5 @@
-import { Hono } from "hono";
 import { Redis } from "@upstash/redis";
+import { Hono } from "hono";
 import HonoWorkerAdapter from "./class/HonoWorkerAdapter.mjs";
 import { Request } from "./process/Request.mjs";
 import { Response } from "./process/Response.mjs";
@@ -91,7 +91,11 @@ export default new Hono()
 				console.debug("finally", `$request: ${JSON.stringify($request, null, 2)}`);
 				injectTmdbCredential($request, c.env?.TMDB_ACCESS_TOKEN ?? globalThis.process?.env?.TMDB_ACCESS_TOKEN);
 				$response = await fetchUpstream($request);
-				$response = await Response($request, $response, { cacheStore: initCacheStore(c.env), waitUntil: getWaitUntil(c), env: c.env });
+				$response = await Response($request, $response, {
+					cacheStore: initCacheStore(c.env),
+					waitUntil: getWaitUntil(c),
+					env: c.env,
+				});
 				return HonoWorkerAdapter.writeResponse(c, $response);
 			default:
 				console.error(`不合法的 $response 类型: ${typeof $response}`);

@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import app from "../src/Hono.js";
+import { CACHE_NEGATIVE_TTL_MS, CACHE_TTL_MS } from "../src/tmdb/cache.mjs";
 import { RedisCacheStore } from "../src/tmdb/cache-redis.mjs";
 import { fireCacheWrite } from "../src/tmdb/cache-store.mjs";
-import { CACHE_TTL_MS, CACHE_NEGATIVE_TTL_MS } from "../src/tmdb/cache.mjs";
 
 // 模拟 Upstash Redis 接口的内存实现，用于测试 RedisCacheStore。
 // In-memory mock of the Upstash Redis interface for testing RedisCacheStore.
@@ -17,14 +17,14 @@ function createMockRedis() {
 		async mget(...keys) {
 			return keys.map(k => (store.has(k) ? store.get(k) : null));
 		},
-		async set(key, value, options) {
+		async set(key, value, _options) {
 			store.set(key, value);
 			return "OK";
 		},
 		pipeline() {
 			const ops = [];
 			return {
-				set(key, value, options) {
+				set(key, value, _options) {
 					ops.push({ key, value });
 					return this;
 				},
@@ -180,7 +180,9 @@ test("fireCacheWrite 在提供 waitUntil 时调用它", async () => {
 
 test("fireCacheWrite 吞掉写入错误", async () => {
 	let errored = false;
-	const waitUntil = () => { errored = true; };
+	const waitUntil = () => {
+		errored = true;
+	};
 	const rejectingPromise = Promise.reject(new Error("write failed"));
 	fireCacheWrite(rejectingPromise, waitUntil);
 	// 等待微任务队列清空，不应抛出未处理 rejection
@@ -190,7 +192,9 @@ test("fireCacheWrite 吞掉写入错误", async () => {
 
 test("fireCacheWrite 对 undefined promise 不做任何操作", () => {
 	let called = false;
-	const waitUntil = () => { called = true; };
+	const waitUntil = () => {
+		called = true;
+	};
 	fireCacheWrite(undefined, waitUntil);
 	assert.equal(called, false);
 });
