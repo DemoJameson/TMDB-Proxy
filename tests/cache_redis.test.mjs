@@ -6,7 +6,6 @@ import { RedisCacheStore } from "../src/tmdb/cache-redis.mjs";
 import { fireCacheWrite } from "../src/tmdb/cache-store.mjs";
 
 // 模拟 Upstash Redis 接口的内存实现，用于测试 RedisCacheStore。
-// In-memory mock of the Upstash Redis interface for testing RedisCacheStore.
 function createMockRedis() {
 	const store = new Map();
 	return {

@@ -2,19 +2,16 @@ import { Lodash as _ } from "@nsnanocat/util";
 
 /**
  * Hono 路由上下文类型。
- * Hono route context type.
  * @typedef {import("hono").Context} HonoContext
  */
 
 /**
  * Worker 统一头部字典。
- * Worker normalized header dictionary.
  * @typedef {Record<string, string | string[] | undefined>} WorkerHeaders
  */
 
 /**
  * Worker 内部统一请求对象。
- * Worker normalized internal request payload.
  * @typedef {{
  * 	method: string,
  * 	url: string,
@@ -26,7 +23,6 @@ import { Lodash as _ } from "@nsnanocat/util";
 
 /**
  * Worker 内部统一响应对象。
- * Worker normalized internal response payload.
  * @typedef {{
  * 	status?: number,
  * 	statusCode?: number,
@@ -38,34 +34,33 @@ import { Lodash as _ } from "@nsnanocat/util";
 
 /**
  * Hono Worker 运行时适配器。
- * Hono worker runtime adapter.
  */
 export default class HonoWorkerAdapter {
 	/**
 	 * 根据 Vercel/Workers 入口路径重写为 TMDB 上游 URL。
-	 * Rewrite incoming path to the TMDB upstream URL.
-	 * @param {URL} url 当前请求 URL / Current request URL.
-	 * @param {string} restPath 回退路由路径 / Fallback route path.
-	 * @returns {URL | null} 重写后的 URL，非代理路径返回 null / Routed URL, or null for non-proxy paths.
+	 * @param {URL} url 当前请求 URL
+	 * @param {string} restPath 回退路由路径
+	 * @returns {URL | null} 重写后的 URL，非代理路径返回 null
 	 */
 	static routeRewrite(url, restPath = "") {
 		const path = `${restPath}`.replace(/^\/+/, "");
 		const tmdbPath = path.replace(/^api\//, "");
-		if (tmdbPath.startsWith("3/")) {
-			url.protocol = "https:";
-			url.hostname = "api.themoviedb.org";
-			url.port = "443";
-			url.pathname = `/${tmdbPath}`;
-			return url;
-		}
-		return null;
+		// API 路径为 /3/...，图片路径为 /t/p/...；两者共用一个反代域名时在这里按路径分流。
+		let hostname;
+		if (tmdbPath.startsWith("3/")) hostname = "api.themoviedb.org";
+		else if (tmdbPath.startsWith("t/p/")) hostname = "image.tmdb.org";
+		else return null;
+		url.protocol = "https:";
+		url.hostname = hostname;
+		url.port = "443";
+		url.pathname = `/${tmdbPath}`;
+		return url;
 	}
 
 	/**
 	 * 解析请求查询参数，兼容旧入口中的点路径嵌套写法。
-	 * Parse request query arguments using the legacy dotted path convention.
-	 * @param {string} search URL 查询串 / URL search string.
-	 * @returns {Record<string, unknown>} 解析后的参数对象 / Parsed argument object.
+	 * @param {string} search URL 查询串
+	 * @returns {Record<string, unknown>} 解析后的参数对象
 	 */
 	static parseRequestArguments(search = "") {
 		globalThis.$argument ??= {};
@@ -77,9 +72,8 @@ export default class HonoWorkerAdapter {
 
 	/**
 	 * 清理并标准化转发请求头。
-	 * Normalize headers before forwarding upstream.
-	 * @param {WorkerHeaders} headers 原始请求头 / Raw request headers.
-	 * @returns {WorkerHeaders} 标准化后的请求头 / Normalized request headers.
+	 * @param {WorkerHeaders} headers 原始请求头
+	 * @returns {WorkerHeaders} 标准化后的请求头
 	 */
 	static normalizeRequestHeaders(headers = {}) {
 		const requestHeaderBlacklist = new Set(["connection", "content-length", "host", "x-forwarded-proto", "x-real-ip"]);
@@ -94,9 +88,8 @@ export default class HonoWorkerAdapter {
 
 	/**
 	 * 从 Hono context 构造内部统一请求对象。
-	 * Build the normalized internal request payload from Hono context.
-	 * @param {HonoContext} c Hono 上下文 / Hono context.
-	 * @returns {Promise<WorkerRequest | null>} 标准化请求对象，非代理路径返回 null / Normalized request object, or null for non-proxy paths.
+	 * @param {HonoContext} c Hono 上下文
+	 * @returns {Promise<WorkerRequest | null>} 标准化请求对象，非代理路径返回 null
 	 */
 	static async buildRequest(c) {
 		const url = HonoWorkerAdapter.routeRewrite(new URL(c.req.url), c.req.param("rest"));
@@ -133,9 +126,8 @@ export default class HonoWorkerAdapter {
 
 	/**
 	 * 清理回包头，避免与 Cloudflare Workers 回写行为冲突。
-	 * Clean response headers to avoid conflicts with Cloudflare Workers.
-	 * @param {WorkerHeaders} headers 原始响应头 / Raw response headers.
-	 * @returns {WorkerHeaders} 清理后的响应头 / Cleaned response headers.
+	 * @param {WorkerHeaders} headers 原始响应头
+	 * @returns {WorkerHeaders} 清理后的响应头
 	 */
 	static cleanupResponseHeaders(headers = {}) {
 		const normalizedHeaders = Object.fromEntries(Object.entries(headers).filter(([key]) => !["content-length", "transfer-encoding"].includes(key.toLowerCase())));
@@ -146,10 +138,9 @@ export default class HonoWorkerAdapter {
 
 	/**
 	 * 将内部统一响应对象写回 Hono response。
-	 * Write the normalized internal response payload back to Hono.
-	 * @param {HonoContext} c Hono 上下文 / Hono context.
-	 * @param {WorkerResponse} $response 内部响应对象 / Internal response object.
-	 * @returns {Response} Hono 响应 / Hono response.
+	 * @param {HonoContext} c Hono 上下文
+	 * @param {WorkerResponse} $response 内部响应对象
+	 * @returns {Response} Hono 响应
 	 */
 	static writeResponse(c, $response = {}) {
 		const headers = HonoWorkerAdapter.cleanupResponseHeaders($response.headers ?? {});

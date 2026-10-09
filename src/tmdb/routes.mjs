@@ -1,6 +1,9 @@
-const TMDB_HOSTS = new Set(["api.themoviedb.org", "api.tmdb.org", "vidora-tmdb.wwmm.date", "api.tmdb.demojameson.cn"]);
+// TMDB 反代主机（Cloudflare 单域名）：API 走 /3/...、图片走 /t/p/...，由反代端按路径分流。
+const TMDB_PROXY_HOST = "tmdb.demojameson.de5.net";
 
-const TMDB_IMAGE_HOSTS = new Set(["image.tmdb.org", "image.tmdb.demojameson.cn"]);
+const TMDB_HOSTS = new Set(["api.themoviedb.org", "api.tmdb.org", "vidora-tmdb.wwmm.date", TMDB_PROXY_HOST]);
+
+const TMDB_IMAGE_HOSTS = new Set(["image.tmdb.org", TMDB_PROXY_HOST]);
 
 const TMDB_API_ORIGIN_HOSTS = new Set(["api.themoviedb.org", "api.tmdb.org"]);
 
@@ -22,8 +25,17 @@ function isTmdbImageHost(hostname) {
 	return TMDB_IMAGE_HOSTS.has(String(hostname).toLowerCase());
 }
 
+// TMDB 图片路径统一为 /t/p/{size}/{file}。
+const TMDB_IMAGE_PATH_PREFIX = "/t/p/";
+
+// 是否为图片请求：图片域名 + /t/p/... 路径。反代域名同时承载 API 与图片，
+// 只判断域名会把 /3/movie/popular 这类没有解析成 route 的 API 路径误判为图片并注入图片请求头。
+function isTmdbImageRequest(input) {
+	const url = input instanceof URL ? input : new URL(input);
+	return isTmdbImageHost(url.hostname) && url.pathname.startsWith(TMDB_IMAGE_PATH_PREFIX);
+}
+
 // 源域名：用于判断是否需要重定向到自建反代域名（反代域名本身不属于源域名，避免死循环）。
-// Origin hosts: used to decide whether to redirect to the self-hosted reverse-proxy host (the proxy host itself is excluded to avoid loops).
 function isTmdbApiOriginHost(hostname) {
 	return TMDB_API_ORIGIN_HOSTS.has(String(hostname).toLowerCase());
 }
@@ -69,8 +81,6 @@ function isTmdbCompatiblePath(input) {
 
 // 将 forwardinfo 请求 URL 原地改写为 TMDB API URL（替换主机并补 /3 前缀）；keepSearch 为 false 时清空查询参数。
 // 返回 URL 是否来自 forward 主机。
-// Rewrites a forwardinfo request URL in place to a TMDB API URL (swap host and add /3 prefix); clears the query unless keepSearch is true.
-// Returns whether the URL came from a forward host.
 function rewriteForwardToTmdbUrl(url, { keepSearch = false } = {}) {
 	if (!isForwardHost(url.hostname)) return false;
 	url.host = "api.tmdb.org";
@@ -85,7 +95,6 @@ function isChineseLanguage(language) {
 }
 
 // 判断文本是否含汉字，用于识别标题/名称是否已是中文（不涉及简繁转换）。
-// Whether the text contains Han characters; used to tell whether a title/name is already Chinese.
 function hasHan(value) {
 	return HAN_REGEX.test(String(value ?? ""));
 }
@@ -182,6 +191,7 @@ export {
 	isTmdbHost,
 	isTmdbImageHost,
 	isTmdbImageOriginHost,
+	isTmdbImageRequest,
 	parseTmdbRoute,
 	rewriteAppendToResponse,
 	rewriteForwardToTmdbUrl,
@@ -189,4 +199,5 @@ export {
 	rewriteToTvSeasonAggregateCredits,
 	TMDB_HOSTS,
 	TMDB_IMAGE_HOSTS,
+	TMDB_PROXY_HOST,
 };

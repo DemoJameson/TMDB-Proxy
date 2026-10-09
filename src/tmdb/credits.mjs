@@ -15,7 +15,6 @@ function normalizeAggregateCast(item) {
 }
 
 // 将 aggregate_credits 的 crew 条目展开为普通 credits 格式：每个 job 一条记录。
-// Expands aggregate_credits crew entries into regular credits format: one entry per job.
 function normalizeAggregateCrew(item) {
 	const { jobs, total_episode_count: _episodeCount, ...crew } = item ?? {};
 	if (!Array.isArray(jobs) || jobs.length === 0) return [crew];
@@ -30,7 +29,6 @@ function normalizeAggregateCrew(item) {
 }
 
 // 计算导演导过的集数，用于排序重要性。
-// Sums episode_count from Director jobs to rank importance.
 function getDirectorEpisodeCount(item) {
 	if (!Array.isArray(item?.jobs)) return 0;
 	return item.jobs.reduce((sum, job) => (job?.job === "Director" ? sum + (Number(job.episode_count) || 0) : sum), 0);
@@ -45,7 +43,6 @@ function hasProfilePath(item) {
 }
 
 // 限制导演数量：按导过的集数降序取前 MAX_DIRECTORS 个，过滤掉无头像的，至少保留一个。
-// Limits directors: takes top 2 by episode count (desc), filters out those without profile photos, keeps at least one.
 function limitDirectors(crew) {
 	if (!Array.isArray(crew)) return crew;
 	const directors = crew.filter(isDirector);
@@ -54,7 +51,6 @@ function limitDirectors(crew) {
 	const topDirectors = sorted.slice(0, MAX_DIRECTORS);
 	const withProfile = topDirectors.filter(hasProfilePath);
 	// 至少保留一个导演：有头像的为空时回退到集数最多的那位。
-	// Keep at least one director: fall back to top director when none have profile photos.
 	const kept = withProfile.length > 0 ? withProfile : [sorted[0]];
 	const keep = new Set(kept.map(item => item?.id));
 	return crew.filter(item => !isDirector(item) || keep.has(item?.id));

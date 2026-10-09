@@ -58,7 +58,7 @@ const argumentFields = [
 		defaultValue: false,
 		type: "boolean",
 		tag: "TMDB 代理",
-		desc: "将 TMDB API 与图片请求重定向到可直连的地址，可能不如挂梯快",
+		desc: "将 TMDB API 与图片请求重定向到 tmdb.demojameson.de5.net，可能不如挂梯快",
 		scriptOnly: true,
 	},
 ];
@@ -94,19 +94,10 @@ const scriptRules = [
 		argumentKeys: ALL_ARGUMENT_KEYS,
 	},
 	{
-		title: "TMDB 代理 API 请求",
-		comment: "反代域名 api.tmdb.demojameson.cn 的请求按 TMDB 处理",
+		title: "TMDB 代理请求",
+		comment: "反代域名 tmdb.demojameson.de5.net 的 API 与图片请求按 TMDB 处理",
 		phase: "http-request",
-		pattern: String.raw`^https:\/\/api\.tmdb\.demojameson\.cn\/3\/.*$`,
-		scriptFile: REQUEST_SCRIPT_FILE,
-		timeout: 10,
-		argumentKeys: ALL_ARGUMENT_KEYS,
-	},
-	{
-		title: "TMDB 代理图片请求",
-		comment: "反代域名 image.tmdb.demojameson.cn 的图片请求优先 WebP",
-		phase: "http-request",
-		pattern: String.raw`^https:\/\/image\.tmdb\.demojameson\.cn\/.*$`,
+		pattern: String.raw`^https:\/\/tmdb\.demojameson\.de5\.net\/.*$`,
 		scriptFile: REQUEST_SCRIPT_FILE,
 		timeout: 10,
 		argumentKeys: ALL_ARGUMENT_KEYS,
@@ -115,7 +106,7 @@ const scriptRules = [
 		title: "TMDB 代理 API 响应",
 		comment: "反代域名响应缺中文标题时回填别名，演职员角色名汉化",
 		phase: "http-response",
-		pattern: String.raw`^https:\/\/api\.tmdb\.demojameson\.cn\/3\/.*$`,
+		pattern: String.raw`^https:\/\/tmdb\.demojameson\.de5\.net\/3\/.*$`,
 		scriptFile: RESPONSE_SCRIPT_FILE,
 		timeout: 60,
 		requiresBody: true,
@@ -155,15 +146,7 @@ const scriptRules = [
 	},
 ];
 
-const mitmHosts = [
-	"api.themoviedb.org",
-	"api.tmdb.org",
-	"vidora-tmdb.wwmm.date",
-	"image.tmdb.org",
-	"forwardinfo.vvebo.vip",
-	"api.tmdb.demojameson.cn",
-	"image.tmdb.demojameson.cn",
-];
+const mitmHosts = ["api.themoviedb.org", "api.tmdb.org", "vidora-tmdb.wwmm.date", "image.tmdb.org", "forwardinfo.vvebo.vip", "tmdb.demojameson.de5.net"];
 
 const boxjs = {
 	id: "demojameson.app.sub",

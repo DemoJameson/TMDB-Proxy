@@ -64,7 +64,7 @@
                     "name": "TMDB 代理",
                     "val": false,
                     "type": "boolean",
-                    "desc": "将 TMDB API 与图片请求重定向到可直连的地址，可能不如挂梯快"
+                    "desc": "将 TMDB API 与图片请求重定向到 tmdb.demojameson.de5.net，可能不如挂梯快"
                 }
             ],
             "descs_html": [

@@ -7,7 +7,6 @@ import { buildSubRequestHeaders } from "./headers.mjs";
 import { buildExternalIdsUrl, buildMediaDetailUrl, getRequestLanguage, hasHan, isChineseLanguage, parseTmdbRoute, rewriteForwardToTmdbUrl } from "./routes.mjs";
 
 // 中日韩制片地区（含港澳台）。
-// CJK production regions (including HK, MO, TW).
 const CJK_COUNTRIES = new Set(["CN", "JP", "KR", "HK", "TW", "MO"]);
 
 function isCjkProduction(originCountries) {
@@ -34,7 +33,6 @@ function createMediaDetailRequest(sourceRequest, mediaType, mediaId, language, a
 }
 
 // 发送请求并解析 JSON：网络错误（fetcher 抛出、无响应、5xx）时抛出 NetworkError；4xx 返回 null（确实无结果）。
-// Sends request and parses JSON: throws NetworkError on network failure (fetcher throws, no response, 5xx); returns null on 4xx (no result).
 async function fetchJsonOrThrow(request, fetcher) {
 	let response;
 	try {
@@ -93,7 +91,6 @@ async function resolveDoubanIds(mediaType, imdbId, fetcher, entry, fallbackTitle
 	}
 	const targetType = mediaType === "movie" ? "movie" : "tv";
 	// 用 allSettled 并行搜索：一个网络错误时用另一个的结果，两个都失败才抛出。
-	// Use allSettled for parallel search: use the other's result if one fails; throw only if both fail.
 	const [imdbResult, fallbackResult] = await Promise.allSettled([
 		searchDoubanSubject(imdbId, targetType, fetcher, undefined, false),
 		fallbackTitle ? searchDoubanSubject(fallbackTitle, targetType, fetcher, fallbackYear) : Promise.resolve(null),
@@ -112,7 +109,6 @@ async function resolveDoubanIds(mediaType, imdbId, fetcher, entry, fallbackTitle
 	let seasonDoubanIds = [];
 	if (mediaType === "tv") {
 		// seasons 请求网络错误时用主 doubanId 继续，不阻断流程。
-		// On seasons request network error, continue with main doubanId; don't block the flow.
 		try {
 			const seasonsPayload = await fetchDoubanSeasons(doubanId, fetcher);
 			seasonDoubanIds = (seasonsPayload?.seasons ?? []).map(season => String(season?.id ?? "").trim()).filter(id => id && id !== doubanId);
@@ -140,7 +136,6 @@ async function collectDoubanCredits(doubanIds, fetcher, entry) {
 const PLACEHOLDER_CHARACTERS = new Set(["演员", "配音"]);
 
 // 将豆瓣演员名归一化为简体中文，与 TMDB 演员名（已转简体）匹配。
-// Normalizes Douban actor names to Simplified Chinese to match TMDB actor names (already converted to zh-cn).
 function normalizeDoubanCreditsKeys(doubanCredits) {
 	const normalized = {};
 	for (const [name, characters] of Object.entries(doubanCredits ?? {})) {
@@ -177,7 +172,6 @@ function applyCharacterTranslations(cast, doubanCredits, language) {
 		const currentCharacter = String(item.character ?? "").trim();
 		const isVoiceRole = isVoiceCharacter(currentCharacter);
 		// 配音占位符（如 "(voice)"）继续走豆瓣匹配真实角色名；非占位符且已有中文角色名时跳过。
-		// Voice placeholders (e.g. "(voice)") continue to douban for real character name; skip non-voice roles with existing Chinese character.
 		if (!isVoiceRole && currentCharacter && hasHan(currentCharacter)) continue;
 		const actorName = convertChinese(String(item.name ?? "").trim(), "zh-cn");
 		const characters = actorName ? normalizedCredits[actorName] : null;
@@ -191,7 +185,6 @@ function applyCharacterTranslations(cast, doubanCredits, language) {
 		}
 		if (finalCharacters) {
 			// 有现有角色名（如英文）时，占位符不覆盖
-			// Don't override existing character name (e.g. English) with placeholder
 			const isPlaceholderOnly = finalCharacters.every(character => PLACEHOLDER_CHARACTERS.has(character));
 			if (!isPlaceholderOnly || !currentCharacter) {
 				const translated = finalCharacters.map(character => convertChinese(character, language)).filter(character => character && hasHan(character));
@@ -230,7 +223,6 @@ export async function applyCharacterTranslation(request, body, options = {}) {
 		const { title: fallbackTitle, year: fallbackYear, originCountries } = await resolveFallbackInfo(route, body, request, fetcher, entry, apiKey);
 		const hasChineseSource = hasHan(entry?.title) || (entry?.aliases && Object.keys(entry.aliases).length > 0);
 		// 仅对中日韩影片（含港澳台）汉化角色名，非 CJK 影片跳过。
-		// Only translate characters for CJK productions (including HK, MO, TW); skip non-CJK.
 		if (!isCjkProduction(originCountries)) {
 			const ttl = CACHE_NEGATIVE_TTL_MS;
 			await fireCacheWrite(cacheStore.set(route.mediaType, route.mediaId, entry, ttl, options.now), options.waitUntil);
@@ -241,7 +233,6 @@ export async function applyCharacterTranslation(request, body, options = {}) {
 			const ttl = hasChineseSource ? CACHE_TTL_MS : CACHE_NEGATIVE_TTL_MS;
 			await fireCacheWrite(cacheStore.set(route.mediaType, route.mediaId, entry, ttl, options.now), options.waitUntil);
 			// 无豆瓣 ID 时仍需替换配音占位符（如 "(voice)"）。
-			// Replace voice placeholders (e.g. "(voice)") even without douban IDs.
 			applyCharacterTranslations(credits.cast, {}, language);
 			return body;
 		}
@@ -250,11 +241,9 @@ export async function applyCharacterTranslation(request, body, options = {}) {
 		const ttl = hasCharacters && hasChineseSource ? CACHE_FULL_TTL_MS : hasCharacters || hasChineseSource ? CACHE_TTL_MS : CACHE_NEGATIVE_TTL_MS;
 		await fireCacheWrite(cacheStore.set(route.mediaType, route.mediaId, entry, ttl, options.now), options.waitUntil);
 		// 始终调用以处理配音占位符替换，即使豆瓣无角色名数据。
-		// Always call to handle voice placeholder replacement, even when douban has no character data.
 		applyCharacterTranslations(credits.cast, doubanCredits, language);
 	} catch (error) {
 		// 网络错误（请求未成功完成）不写入缓存，下次请求会重试。
-		// Network errors (request did not complete successfully) are not cached; next request will retry.
 		if (error instanceof NetworkError) {
 			console.error("Character translation skipped due to network error:", error.message);
 		} else {

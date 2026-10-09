@@ -8,13 +8,13 @@ import { normalizeAggregateCredits } from "./credits.mjs";
 import { applyGenreTranslation } from "./genres.mjs";
 import { deleteHeader, readHeader, STATE_HEADER, setHeader } from "./headers.mjs";
 import { applyTmdbRequestRules, encodeState, fetchTmdbWithNativeFetch } from "./request-rules.mjs";
+import { isTmdbImageRequest } from "./routes.mjs";
 
 function getDefaultFetcher() {
 	return globalThis.$task || globalThis.$httpClient ? utilFetch : fetchTmdbWithNativeFetch;
 }
 
 // 根据配置创建缓存存储：配置了 cacheBackend 时用 TieredCacheStore（本地 + HTTP 远端），否则仅本地。
-// Creates cache store based on config: TieredCacheStore (local + HTTP remote) when cacheBackend is set, otherwise local only.
 function createCacheStore(config, storage) {
 	const local = new BlobCacheStore(storage ?? Storage);
 	const remoteUrl = config?.cacheBackend;
@@ -55,7 +55,6 @@ async function applyTmdbResponseRules(request, response, options = {}) {
 			now: options.now,
 		});
 	// TMDB 返回 401 且失败的是本代理注入的 key，才向后端拉取最新 key；客户端自带凭证或 Forward 反代自身的 401 不处理。
-	// Only refresh when TMDB rejects the key this proxy injected; client-supplied credentials and Forward proxy 401s are left alone.
 	if (response.status === 401 && apiKeyProvider.isOwnKey(new URL(request.url).searchParams.get("api_key"))) await apiKeyProvider.handleUnauthorized(options.waitUntil);
 	try {
 		let body = JSON.parse(response.body ?? "{}");
@@ -65,7 +64,6 @@ async function applyTmdbResponseRules(request, response, options = {}) {
 			if (!state.hadClientAggregateCreditsAppend) body.aggregate_credits = undefined;
 		}
 		// 客户端直接请求了 aggregate_credits 但没有 credits 时，生成临时 credits 用于角色名汉化。
-		// Client directly requested aggregate_credits without credits: generate temporary credits for character translation.
 		const generatedCreditsFromAggregate = Boolean(body?.aggregate_credits && !body?.credits);
 		if (generatedCreditsFromAggregate) {
 			body.credits = normalizeAggregateCredits(body.aggregate_credits);
@@ -99,11 +97,8 @@ async function applyTmdbResponseRules(request, response, options = {}) {
 			apiKeyProvider,
 		});
 		// TMDB 部分类型（如 TV 科幻奇幻/战争政治）无中文翻译时返回英文，按请求语言兜底为中文。
-		// Some TMDB genres (e.g. TV Sci-Fi & Fantasy / War & Politics) have no Chinese translation and
-		// are returned in English; localize them to Chinese based on the request language.
 		body = applyGenreTranslation(request, body);
 		// 将汉化结果写回 aggregate_credits 的 roles，删除临时生成的 credits。
-		// Write translated characters back to aggregate_credits roles, remove temporary credits.
 		if (generatedCreditsFromAggregate) {
 			const creditsMap = new Map((body.credits?.cast ?? []).map(c => [c.id, c.character]));
 			for (const castItem of body.aggregate_credits?.cast ?? []) {
@@ -131,6 +126,8 @@ function hasClientCredential(request) {
 
 function injectTmdbCredential(request, token) {
 	if (!token || hasClientCredential(request)) return request;
+	// 图片 CDN 不接受也不需要凭证，跳过注入，避免把 v4 Token 发到 image.tmdb.org。
+	if (isTmdbImageRequest(request.url)) return request;
 	request.headers ??= {};
 	setHeader(request.headers, "Authorization", `Bearer ${token}`);
 	return request;

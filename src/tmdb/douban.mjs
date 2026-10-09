@@ -35,7 +35,6 @@ const INVALID_DOUBAN_CHARACTER_VALUES = new Set([
 ]);
 
 // 网络错误：fetcher 抛出异常、无响应、或 5xx 服务器错误。4xx 视为"确实无结果"。
-// Network error: fetcher throws, no response, or 5xx server error. 4xx is treated as "no result".
 class NetworkError extends Error {
 	constructor(message) {
 		super(message);

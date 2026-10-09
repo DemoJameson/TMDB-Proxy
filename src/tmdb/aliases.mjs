@@ -136,7 +136,6 @@ async function applyChineseAliasFallback(requestUrl, body, options = {}) {
 	const titles = readAlternativeTitles(body, route.mediaType);
 	const aliases = extractRegionalAliases(titles);
 	// 从详情响应提取角色名汉化所需字段（imdbId、originCountries、title、year），在详情接口响应时即缓存。
-	// Extract character-translation fields (imdbId, originCountries, title, year) from detail response and cache at detail response time.
 	const detailFields = extractDetailCacheFields(body, route.mediaType);
 
 	const cacheStore = options.cacheStore;
@@ -199,7 +198,6 @@ export function extractFallbackInfoFromBody(body, mediaType) {
 }
 
 // 从响应体提取制片地区（origin_country 优先，回退到 production_countries）。
-// Extracts production countries from body (origin_country first, then production_countries).
 export function extractOriginCountries(body) {
 	const countries = Array.isArray(body?.origin_country) ? body.origin_country : [];
 	if (countries.length > 0)
@@ -223,7 +221,6 @@ export function extractOriginCountries(body) {
 }
 
 // 从详情响应体提取角色名汉化所需字段（imdbId、title、year、originCountries），供缓存合并使用。
-// Extracts character-translation fields (imdbId, title, year, originCountries) from a detail response body for cache merging.
 function extractDetailCacheFields(body, mediaType) {
 	const fields = {};
 	const { title, year } = extractFallbackInfoFromBody(body, mediaType);
@@ -253,7 +250,6 @@ function createListDetailRequest(sourceRequest, mediaType, mediaId, language, ap
 }
 
 // 发送列表条目的详情子请求，网络错误仅告警，不影响整个列表响应。
-// Sends the detail subrequest for a list item; network errors are only logged and do not break the list response.
 async function requestListDetail(fetcher, detailRequest, mediaType, mediaId) {
 	return await fetcher(detailRequest).catch(error => {
 		console.warn(`[tmdb-proxy] 列表别名详情请求失败: ${mediaType}/${mediaId}`, error?.message ?? error);
@@ -262,7 +258,6 @@ async function requestListDetail(fetcher, detailRequest, mediaType, mediaId) {
 }
 
 // 详情子请求遇到 401，且失败的是本代理注入的 key 时刷新 key 并重试一次，使当前列表也能补全中文。
-// Retries a detail subrequest once after refreshing the key, only when TMDB rejected the key this proxy injected.
 async function fetchListDetail(fetcher, buildRequest, mediaType, mediaId, apiKeyProvider, waitUntil) {
 	const apiKey = await apiKeyProvider.get();
 	const detailRequest = buildRequest(apiKey);
@@ -334,7 +329,6 @@ async function applyChineseAliasFallbackToList(request, body, options = {}) {
 			const aliases = extractRegionalAliases(titles);
 			const alias = pickChineseAliasFromRegions(aliases, language);
 			// 从详情响应提取全部字段并缓存
-			// Extract all detail fields from detail response and cache
 			const detailFields = extractDetailCacheFields(detailBody, mediaType);
 			const cacheData = { aliases, ...detailFields };
 			const hasData = Object.keys(aliases).length > 0 || Object.keys(detailFields).length > 0;

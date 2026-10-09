@@ -37,6 +37,21 @@ test("BoxJs keys 与参数字段一致", () => {
 	);
 });
 
+test("tmdbProxy 以开关形式渲染", () => {
+	const field = argumentFields.find(item => item.key === "tmdbProxy");
+	assert.equal(field.type, "boolean");
+	assert.equal(field.defaultValue, false);
+
+	const generated = Object.fromEntries(renderGeneratedTargets().map(target => [target.outputFile, target.content]));
+	assert.match(generated["dist/tmdb_proxy.plugin"], /tmdbProxy = switch, "false"/);
+	assert.match(generated["dist/tmdb_proxy.sgmodule"], /tmdbProxy:"false"/);
+
+	const payload = JSON.parse(generated["dist/boxjs.json"]);
+	const setting = payload.apps[0].settings.find(item => item.id.endsWith(".tmdbProxy"));
+	assert.equal(setting.type, "boolean");
+	assert.equal(setting.val, false);
+});
+
 test("订阅产物包含目标平台语法、脚本路径和 MITM 域名", () => {
 	const generated = Object.fromEntries(renderGeneratedTargets().map(target => [target.outputFile, target.content]));
 	assert.match(generated["dist/tmdb_proxy.plugin"], /http-request .*tmdb_proxy_request\.js/);

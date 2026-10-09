@@ -1,22 +1,21 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import HonoWorkerAdapter from "../src/class/HonoWorkerAdapter.mjs";
 import app from "../src/Hono.js";
 import { pickChineseAlias } from "../src/tmdb/aliases.mjs";
 import { CACHE_FULL_TTL_MS, CACHE_NEGATIVE_TTL_MS, CACHE_TTL_MS, createEmptyCache, normalizeCache, setCacheEntry, writeCache } from "../src/tmdb/cache.mjs";
 import { parseRuntimeArgument, resolveProxyConfig } from "../src/tmdb/config.mjs";
 import { GENRE_NAMES } from "../src/tmdb/genres.mjs";
-import { applyTmdbRequestRules, applyTmdbResponseRules, fetchTmdbWithNativeFetch, STATE_HEADER } from "../src/tmdb/proxy.mjs";
-import { isForwardHost, isTmdbApiOriginHost, isTmdbHost, isTmdbImageHost, isTmdbImageOriginHost } from "../src/tmdb/routes.mjs";
+import { applyTmdbRequestRules, applyTmdbResponseRules, fetchTmdbWithNativeFetch, injectTmdbCredential, STATE_HEADER } from "../src/tmdb/proxy.mjs";
+import { isForwardHost, isTmdbApiOriginHost, isTmdbHost, isTmdbImageHost, isTmdbImageOriginHost, isTmdbImageRequest } from "../src/tmdb/routes.mjs";
 
 // 测试用 API Key：反代场景由后端环境变量提供，脚本场景由缓存后端下发。
-// Test API keys: the backend env provides the key for reverse proxies, the cache backend serves it for scripts.
 const TEST_API_KEY = "test-tmdb-api-key";
 const TEST_ENV = { TMDB_API_KEY: TEST_API_KEY };
 const ROTATED_API_KEY = "rotated-tmdb-api-key";
 let remoteApiKey = TEST_API_KEY;
 
 // 拦截缓存后端 HTTP 请求，返回空结果，避免测试中真实网络调用。
-// Intercepts cache backend HTTP requests, returns empty results to avoid real network calls in tests.
 const originalFetch = globalThis.fetch;
 globalThis.fetch = async (resource, init) => {
 	const url = typeof resource === "string" ? resource : (resource?.url ?? "");
@@ -35,7 +34,6 @@ globalThis.fetch = async (resource, init) => {
 };
 
 // 模拟脚本运行时（Surge/Loon/QX 由宿主注入 $done），使 API Key 提供者走远端拉取分支。
-// Simulates a script runtime (Surge/Loon/QX inject $done) so the API key provider takes the remote fetch path.
 async function withScriptRuntime(run) {
 	const originalDone = globalThis.$done;
 	globalThis.$done = () => {};
@@ -555,7 +553,6 @@ test("aggregate_credits 前 2 导演过滤掉无头像的，至少保留一个",
 	const body = JSON.parse(response.body);
 	const directors = body.crew.filter(c => c.job === "Director");
 	// 前 2 为 A(9,无头像)、B(8,有头像)，过滤后仅保留 B
-	// Top 2 are A(9,no photo), B(8,photo); after filtering only B remains
 	assert.deepEqual(
 		directors.map(c => c.name),
 		["导演B"],
@@ -605,7 +602,6 @@ test("aggregate_credits 前 2 导演全无头像时回退保留集数最多的",
 	const body = JSON.parse(response.body);
 	const directors = body.crew.filter(c => c.job === "Director");
 	// 前 2 全无头像，回退保留集数最多的导演A
-	// Top 2 all lack photos, fall back to director A with most episodes
 	assert.deepEqual(
 		directors.map(c => c.name),
 		["导演A"],
@@ -1221,6 +1217,83 @@ test("非 TMDB 的 Vercel API 路径不会递归转发到自身", async () => {
 	} finally {
 		globalThis.fetch = originalFetch;
 	}
+});
+
+test("反代域名把 /t/p/ 图片路径分流到 image.tmdb.org", () => {
+	const url = HonoWorkerAdapter.routeRewrite(new URL("https://tmdb.demojameson.de5.net/t/p/w500/abc.jpg"), "t/p/w500/abc.jpg");
+	assert.equal(url?.toString(), "https://image.tmdb.org/t/p/w500/abc.jpg");
+	const apiUrl = HonoWorkerAdapter.routeRewrite(new URL("https://tmdb.demojameson.de5.net/3/movie/550"), "3/movie/550");
+	assert.equal(apiUrl?.toString(), "https://api.themoviedb.org/3/movie/550");
+	assert.equal(HonoWorkerAdapter.routeRewrite(new URL("https://tmdb.demojameson.de5.net/t/popular"), "t/popular"), null);
+});
+
+test("Worker 代理图片时原样回写二进制字节并保留 content-type", async () => {
+	const originalFetch = globalThis.fetch;
+	// 含 0xFF 的 JPEG 头，按 UTF-8 解码会被替换字符损坏，用于验证二进制回写未被字符串化。
+	const jpegBytes = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0xff, 0xd9]);
+	let upstreamUrl;
+	let upstreamAccept;
+	globalThis.fetch = async (url, init) => {
+		upstreamUrl = String(url);
+		upstreamAccept = init.headers.Accept;
+		return new Response(jpegBytes, { status: 200, headers: { "content-type": "image/jpeg" } });
+	};
+	try {
+		const response = await app.request("https://example.test/t/p/w500/abc.jpg");
+		assert.equal(upstreamUrl, "https://image.tmdb.org/t/p/w500/abc.jpg");
+		assert.equal(upstreamAccept, "image/webp,*/*");
+		assert.equal(response.status, 200);
+		assert.equal(response.headers.get("content-type"), "image/jpeg");
+		assert.deepEqual(new Uint8Array(await response.arrayBuffer()), jpegBytes);
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("Vercel /api 前缀的图片路径同样分流到 image.tmdb.org", async () => {
+	const originalFetch = globalThis.fetch;
+	let upstreamUrl;
+	globalThis.fetch = async url => {
+		upstreamUrl = String(url);
+		return new Response(new Uint8Array([1, 2, 3]), { status: 200, headers: { "content-type": "image/png" } });
+	};
+	try {
+		const response = await app.request("https://example.test/api/t/p/w500/abc.jpg");
+		assert.equal(upstreamUrl, "https://image.tmdb.org/t/p/w500/abc.jpg");
+		assert.deepEqual(new Uint8Array(await response.arrayBuffer()), new Uint8Array([1, 2, 3]));
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("Worker 代理图片时不注入 TMDB_ACCESS_TOKEN", async () => {
+	const originalFetch = globalThis.fetch;
+	let upstreamUrl;
+	let authorization = "unset";
+	globalThis.fetch = async (url, init) => {
+		upstreamUrl = String(url);
+		authorization = init.headers.Authorization ?? init.headers.authorization;
+		return new Response(new Uint8Array([1, 2, 3]), { status: 200, headers: { "content-type": "image/jpeg" } });
+	};
+	try {
+		await app.request("https://example.test/t/p/w500/abc.jpg", {}, { TMDB_ACCESS_TOKEN: "v4-token" });
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+	assert.equal(upstreamUrl, "https://image.tmdb.org/t/p/w500/abc.jpg");
+	assert.equal(authorization, undefined);
+});
+
+test("API 请求仍然注入 TMDB_ACCESS_TOKEN", () => {
+	const request = { url: "https://api.themoviedb.org/3/movie/550", headers: {} };
+	injectTmdbCredential(request, "v4-token");
+	assert.equal(request.headers.Authorization, "Bearer v4-token");
+});
+
+test("客户端自带凭证时图片请求也不会被改写", () => {
+	const request = { url: "https://image.tmdb.org/t/p/w500/abc.jpg", headers: { Authorization: "Bearer client-token" } };
+	injectTmdbCredential(request, "v4-token");
+	assert.equal(request.headers.Authorization, "Bearer client-token");
 });
 
 test("原生 fetch 预取适配器不依赖 @nsnanocat/util 的 require 分支", async () => {
@@ -3520,56 +3593,88 @@ test("开启 tmdbProxy 时源 API 请求 302 到反代域名", async () => {
 	assert.ok(result.$response, "should return redirect response");
 	assert.equal(result.$response.status, 302);
 	const location = new URL(result.$response.headers.Location);
-	assert.equal(location.hostname, "api.tmdb.demojameson.cn");
+	assert.equal(location.hostname, "tmdb.demojameson.de5.net");
 	assert.equal(location.pathname, "/3/movie/550");
 	assert.equal(location.searchParams.get("language"), "zh-CN");
 	assert.equal(location.searchParams.get("api_key"), TEST_API_KEY);
 });
 
-test("默认关闭时 api.themoviedb.org 不重定向", async () => {
-	const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN", headers: {} };
-	const result = await applyTmdbRequestRules(request, { argument: {}, env: TEST_ENV });
-	assert.equal(result.$response, undefined);
-	assert.equal(new URL(request.url).hostname, "api.themoviedb.org");
-});
-
-test("开启 tmdbProxy 时源图片请求 302 到反代图片域名", async () => {
+test("开启 tmdbProxy 时源图片请求 302 到同一个反代域名", async () => {
 	const request = { method: "GET", url: "https://image.tmdb.org/t/p/w500/abc.jpg", headers: {} };
 	const result = await applyTmdbRequestRules(request, { argument: { tmdbProxy: true } });
 	assert.ok(result.$response, "should return redirect response");
 	assert.equal(result.$response.status, 302);
 	const location = new URL(result.$response.headers.Location);
-	assert.equal(location.hostname, "image.tmdb.demojameson.cn");
+	assert.equal(location.hostname, "tmdb.demojameson.de5.net");
 	assert.equal(location.pathname, "/t/p/w500/abc.jpg");
 	assert.equal(location.searchParams.get("api_key"), null);
 });
 
-test("默认关闭时 image.tmdb.org 不重定向", async () => {
-	const request = { method: "GET", url: "https://image.tmdb.org/t/p/w500/abc.jpg", headers: {} };
-	const result = await applyTmdbRequestRules(request, { argument: {} });
-	assert.equal(result.$response, undefined);
-	assert.equal(new URL(request.url).hostname, "image.tmdb.org");
+test("tmdbProxy 关闭或假值时源域名不重定向", async () => {
+	for (const option of [undefined, false, "false", "FALSE", "0", "no", "off", ""]) {
+		const request = { method: "GET", url: "https://api.themoviedb.org/3/movie/550?language=zh-CN", headers: {} };
+		const result = await applyTmdbRequestRules(request, { argument: { tmdbProxy: option }, env: TEST_ENV });
+		assert.equal(result.$response, undefined, `tmdbProxy=${option} should stay on the origin host`);
+		assert.equal(new URL(request.url).hostname, "api.themoviedb.org");
+
+		const imageRequest = { method: "GET", url: "https://image.tmdb.org/t/p/w500/abc.jpg", headers: {} };
+		const imageResult = await applyTmdbRequestRules(imageRequest, { argument: { tmdbProxy: option } });
+		assert.equal(imageResult.$response, undefined, `tmdbProxy=${option} should stay on the origin image host`);
+		assert.equal(new URL(imageRequest.url).hostname, "image.tmdb.org");
+	}
+});
+
+test("tmdbProxy 开关接受插件参数字符串形式", async () => {
+	for (const option of [true, "true", "TRUE", "1", "yes", "on"]) {
+		const request = { method: "GET", url: "https://api.tmdb.org/3/movie/550?language=zh-CN", headers: {} };
+		const result = await applyTmdbRequestRules(request, { argument: { tmdbProxy: option }, env: TEST_ENV });
+		assert.equal(result.$response?.status, 302, `tmdbProxy=${option} 应重定向`);
+		assert.equal(new URL(result.$response.headers.Location).hostname, "tmdb.demojameson.de5.net");
+	}
+	// 逗号串参数形式：第 6 个字段是 tmdbProxy。
+	const commaConfig = resolveProxyConfig({ argument: parseRuntimeArgument("true,true,true,true,,true"), env: {} });
+	assert.equal(commaConfig.tmdbProxy, true);
 });
 
 test("反代域名请求不再重定向（避免死循环）并按 TMDB 处理", async () => {
-	const request = { method: "GET", url: "https://api.tmdb.demojameson.cn/3/movie/550?language=zh-CN", headers: {} };
-	const result = await applyTmdbRequestRules(request, {
-		argument: { tmdbProxy: true },
-		env: TEST_ENV,
-	});
-	assert.equal(result.$response, undefined);
+	const request = { method: "GET", url: "https://tmdb.demojameson.de5.net/3/movie/550?language=zh-CN", headers: {} };
+	const result = await applyTmdbRequestRules(request, { argument: { tmdbProxy: true }, env: TEST_ENV });
+	assert.equal(result.$response, undefined, "反代域名自身不应再重定向");
 	const url = new URL(request.url);
-	assert.equal(url.hostname, "api.tmdb.demojameson.cn");
+	assert.equal(url.hostname, "tmdb.demojameson.de5.net");
 	assert.equal(url.searchParams.get("append_to_response"), "alternative_titles,external_ids");
 });
 
 test("反代域名被识别为 TMDB 主机但不属于源域名", () => {
-	assert.equal(isTmdbHost("api.tmdb.demojameson.cn"), true);
-	assert.equal(isTmdbImageHost("image.tmdb.demojameson.cn"), true);
-	assert.equal(isTmdbApiOriginHost("api.tmdb.demojameson.cn"), false);
+	assert.equal(isTmdbHost("tmdb.demojameson.de5.net"), true);
+	assert.equal(isTmdbImageHost("tmdb.demojameson.de5.net"), true);
+	assert.equal(isTmdbApiOriginHost("tmdb.demojameson.de5.net"), false);
+	assert.equal(isTmdbImageOriginHost("tmdb.demojameson.de5.net"), false);
 	assert.equal(isTmdbApiOriginHost("api.tmdb.org"), true);
-	assert.equal(isTmdbImageOriginHost("image.tmdb.demojameson.cn"), false);
 	assert.equal(isTmdbImageOriginHost("image.tmdb.org"), true);
+});
+
+test("只有图片主机 + /t/p/ 路径才注入 WebP 请求头", async () => {
+	assert.equal(isTmdbImageRequest(new URL("https://tmdb.demojameson.de5.net/t/p/w500/abc.jpg")), true);
+	assert.equal(isTmdbImageRequest(new URL("https://tmdb.demojameson.de5.net/3/movie/popular")), false);
+	assert.equal(isTmdbImageRequest(new URL("https://image.tmdb.org/t/p/w500/abc.jpg")), true);
+	assert.equal(isTmdbImageRequest(new URL("https://image.tmdb.org/")), false);
+	assert.equal(isTmdbImageRequest(new URL("https://api.themoviedb.org/3/movie/popular")), false);
+
+	const cases = [
+		["https://tmdb.demojameson.de5.net/t/p/w500/abc.jpg", "image/webp,*/*"],
+		["https://tmdb.demojameson.de5.net/3/movie/popular?language=zh-CN", undefined],
+		["https://tmdb.demojameson.de5.net/3/search/movie?query=abc", undefined],
+		["https://tmdb.demojameson.de5.net/3/configuration", undefined],
+		["https://image.tmdb.org/t/p/w500/abc.jpg", "image/webp,*/*"],
+		["https://api.themoviedb.org/3/movie/popular?language=zh-CN", undefined],
+	];
+	for (const [url, expected] of cases) {
+		const request = { method: "GET", url, headers: {} };
+		const { $request } = await applyTmdbRequestRules(request, { argument: {}, env: TEST_ENV });
+		const accept = Object.entries($request.headers ?? {}).find(([key]) => key.toLowerCase() === "accept")?.[1];
+		assert.equal(accept, expected, `${url} 的 Accept 应为 ${expected ?? "(不注入)"}`);
+	}
 });
 
 test("反代配置为脚本专用，proxy.* 查询覆盖被忽略且从 URL 移除", () => {

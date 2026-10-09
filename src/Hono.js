@@ -10,29 +10,24 @@ import { injectTmdbCredential } from "./tmdb/proxy.mjs";
 import { fetchUpstream } from "./tmdb/request-rules.mjs";
 
 // 模块级初始化（Worker isolate 复用）。
-// Module-level initialization (reused across Worker isolate).
 let cacheStore = null;
 function initCacheStore(env) {
 	if (cacheStore) return cacheStore;
 	// 兼容两套环境变量命名：Upstash 官方（UPSTASH_REDIS_REST_*）和 Vercel KV 集成（KV_REST_API_*）。
-	// Support both naming conventions: Upstash official (UPSTASH_REDIS_REST_*) and Vercel KV integration (KV_REST_API_*).
 	const url = env?.UPSTASH_REDIS_REST_URL ?? env?.KV_REST_API_URL ?? globalThis.process?.env?.UPSTASH_REDIS_REST_URL ?? globalThis.process?.env?.KV_REST_API_URL;
 	const token = env?.UPSTASH_REDIS_REST_TOKEN ?? env?.KV_REST_API_TOKEN ?? globalThis.process?.env?.UPSTASH_REDIS_REST_TOKEN ?? globalThis.process?.env?.KV_REST_API_TOKEN;
 	// 未配置 Redis 时返回 null，proxy.mjs 会 fallback 到 BlobCacheStore(Storage)。
-	// Returns null when Redis is not configured; proxy.mjs falls back to BlobCacheStore(Storage).
 	cacheStore = url && token ? new RedisCacheStore(new Redis({ url, token })) : null;
 	return cacheStore;
 }
 
 // 从 Hono context 提取 waitUntil（Cloudflare Workers 专用，Vercel/Node.js 上为 undefined）。
-// Extract waitUntil from Hono context (Cloudflare Workers only; undefined on Vercel/Node.js).
 function getWaitUntil(c) {
 	return typeof c.executionContext?.waitUntil === "function" ? c.executionContext.waitUntil.bind(c.executionContext) : undefined;
 }
 
 // 缓存批量读取端点 —— 供脚本按需批量拉取指定条目。
-// Cache batch read endpoint — for scripts to fetch specific entries on demand.
-// POST /cache/get  body: { "movie": [550, 551], "tv": [1399] }  →  { "movie": { "550": {...} }, "tv": { "1399": {...} } }
+// 请求 POST /cache/get：{ "movie": [550, 551], "tv": [1399] }  →  响应：{ "movie": { "550": {...} }, "tv": { "1399": {...} } }
 async function handleCacheGet(c) {
 	const store = initCacheStore(c.env);
 	if (!store) return c.json({ movie: {}, tv: {} });
@@ -48,8 +43,7 @@ async function handleCacheGet(c) {
 }
 
 // 缓存批量写入端点 —— 供脚本按需批量推送本地缓存条目。
-// Cache batch write endpoint — for scripts to push local entries on demand.
-// POST /cache/set  body: [{ "mediaType": "movie", "id": "550", "data": {...}, "ttlMs": 604800000 }, ...]
+// 请求 POST /cache/set：[{ "mediaType": "movie", "id": "550", "data": {...}, "ttlMs": 604800000 }, ...]
 async function handleCacheSet(c) {
 	const store = initCacheStore(c.env);
 	if (!store) return c.json({ ok: false, error: "Redis not configured" }, 503);
@@ -61,17 +55,14 @@ async function handleCacheSet(c) {
 }
 
 // 密钥下发端点 —— 供脚本端在 key 轮换或失效后拉取后端环境变量中的最新 key。
-// API key endpoint — lets scripts fetch the latest key from the backend env after rotation or invalidation.
 async function handleApiKey(c) {
 	const apiKey = getTmdbApiKey(c.env);
 	if (!apiKey) return c.json({ error: "TMDB_API_KEY not configured" }, 503);
 	return c.json({ apiKey }, 200, { "cache-control": "no-store" });
 }
 
-/***************** Processing *****************/
 export default new Hono()
 	// 同时注册 /cache/* 和 /api/cache/* 路径，兼容 Cloudflare Workers（无 /api 前缀）和 Vercel（/api/* 前缀）。
-	// Register both /cache/* and /api/cache/* to support Cloudflare Workers (no /api prefix) and Vercel (/api/* prefix).
 	.post("/cache/get", handleCacheGet)
 	.post("/api/cache/get", handleCacheGet)
 	.post("/cache/set", handleCacheSet)

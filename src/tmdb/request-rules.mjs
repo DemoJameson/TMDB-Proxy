@@ -8,17 +8,28 @@ import {
 	isForwardHost,
 	isTmdbApiOriginHost,
 	isTmdbCompatiblePath,
-	isTmdbImageHost,
 	isTmdbImageOriginHost,
+	isTmdbImageRequest,
 	parseTmdbRoute,
 	rewriteAppendToResponse,
 	rewriteForwardToTmdbUrl,
 	rewriteToTvAggregateCredits,
 	rewriteToTvSeasonAggregateCredits,
+	TMDB_PROXY_HOST,
 } from "./routes.mjs";
 
 function encodeState(state) {
 	return encodeURIComponent(JSON.stringify(state));
+}
+
+// 只有文本类响应才解码成字符串：图片等二进制响应若按 UTF-8 解码会损坏内容，必须保留原始字节。
+function decodeTextBody(bodyBytes, contentType) {
+	const type = String(contentType ?? "")
+		.split(";")[0]
+		.trim()
+		.toLowerCase();
+	const isText = type === "" || type.startsWith("text/") || type.endsWith("json") || type.endsWith("+json") || type.endsWith("xml") || type === "application/javascript";
+	return isText ? new TextDecoder().decode(bodyBytes) : undefined;
 }
 
 async function fetchUpstream(request) {
@@ -37,14 +48,15 @@ async function fetchUpstream(request) {
 	init.headers = Object.fromEntries(Object.entries(init.headers ?? {}).filter(([key]) => key.toLowerCase() !== STATE_HEADER));
 	const response = await globalThis.fetch(url, init);
 	const bodyBytesResult = await response.arrayBuffer();
+	const headers = Object.fromEntries(response.headers.entries());
 	return {
 		ok: response.ok,
 		status: response.status,
 		statusCode: response.status,
 		statusText: response.statusText,
-		body: new TextDecoder().decode(bodyBytesResult),
+		body: decodeTextBody(bodyBytesResult, headers["content-type"]),
 		bodyBytes: bodyBytesResult,
-		headers: Object.fromEntries(response.headers.entries()),
+		headers,
 	};
 }
 
@@ -75,15 +87,13 @@ async function applyTmdbRequestRules(request, options = {}) {
 			now: options.now,
 		});
 	// 仅在需要注入 key 时解析：脚本端首次使用可能要向后端拉取，避免对已有凭证的请求发起无谓请求。
-	// Resolve the key only when injection is needed: script runtimes may fetch it remotely, so skip requests that already carry credentials.
 	const needsApiKey = (isTmdbCompatiblePath(url) && !url.searchParams.get("api_key") && !hasAuthorization) || isForwardHost(url.hostname);
 	const apiKey = needsApiKey ? await apiKeyProvider.get() : undefined;
 	if (apiKey && isTmdbCompatiblePath(url) && !url.searchParams.get("api_key") && !hasAuthorization) url.searchParams.set("api_key", apiKey);
 	// TMDB 代理：开启时命中源域名的请求 302 跳转到自建反代域名，客户端跟随跳转后再由反代域名规则继续处理。
-	// TMDB proxy: 302 origin-host requests to the self-hosted proxy host; the proxy host rules then continue processing.
 	if (config.tmdbProxy && (isTmdbApiOriginHost(url.hostname) || isTmdbImageOriginHost(url.hostname))) {
 		const target = new URL(url.toString());
-		target.host = isTmdbImageOriginHost(url.hostname) ? "image.tmdb.demojameson.cn" : "api.tmdb.demojameson.cn";
+		target.host = TMDB_PROXY_HOST;
 		return { $request: request, $response: { status: 302, headers: { Location: target.toString() } }, state, config };
 	}
 	if (isForwardHost(url.hostname)) {
@@ -117,7 +127,7 @@ async function applyTmdbRequestRules(request, options = {}) {
 		return { $request: request, state, config };
 	}
 	if (!route) {
-		if (config.imageWebp && isTmdbImageHost(url.hostname)) {
+		if (config.imageWebp && isTmdbImageRequest(url)) {
 			request.headers ??= {};
 			setHeader(request.headers, "Accept", "image/webp,*/*");
 		}

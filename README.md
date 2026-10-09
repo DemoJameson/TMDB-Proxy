@@ -12,7 +12,7 @@ TMDB API v3 反向代理与本地代理工具脚本模块。支持 Vercel、Clou
 
 脚本直接 MITM 以下主机，仅在补齐中文数据或更新 API Key 时访问缓存后端：
 
-`api.themoviedb.org`、`api.tmdb.org`、`vidora-tmdb.wwmm.date`、`image.tmdb.org`、`forwardinfo.vvebo.vip`、`api.tmdb.demojameson.cn`、`image.tmdb.demojameson.cn`
+`api.themoviedb.org`、`api.tmdb.org`、`vidora-tmdb.wwmm.date`、`image.tmdb.org`、`forwardinfo.vvebo.vip`、`tmdb.demojameson.de5.net`
 
 脚本链接：
 
@@ -32,7 +32,9 @@ TMDB API v3 反向代理与本地代理工具脚本模块。支持 Vercel、Clou
 | `aggregateCredits` | `true` | 演职人员从主演改为整剧/整季聚合演员                  |
 | `imageWebp` | `true` | 请求 TMDB 图片时优先 WebP，更省流量                  |
 | `cacheBackend` | `https://tmdb-proxy.demojameson.de5.net` | 远端缓存与 API Key 地址，留空用默认                  |
-| `tmdbProxy` | `false` | 将 TMDB API 与图片请求重定向到可直连的地址，可能不如挂梯快 |
+| `tmdbProxy` | `false` | 开启后将 TMDB API 与图片请求重定向到 `tmdb.demojameson.de5.net`，可能不如挂梯快 |
+
+反代只用 Cloudflare 一个域名：API 走 `/3/...`、图片走 `/t/p/...`，由 Worker 按路径分流。
 
 配置优先级：默认值 < BoxJs < 插件参数。
 
