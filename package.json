@@ -26,7 +26,7 @@
 	"license": "SEE LICENSE IN LICENSE",
 	"dependencies": {
 		"@hono/node-server": "^2.1.0",
-		"@nsnanocat/util": "^2.6.11",
+		"@nsnanocat/util": "^2.7.6",
 		"@upstash/redis": "^1.40.0",
 		"hono": "^4.13.14",
 		"opencc-js": "^1.4.1"
