@@ -9,6 +9,13 @@ function readHeader(headers, key) {
 	return undefined;
 }
 
+function isEplayerXUserAgent(headers) {
+	const userAgent = String(readHeader(headers, "user-agent") ?? "")
+		.trim()
+		.toLowerCase();
+	return userAgent.startsWith("eplayerx");
+}
+
 function setHeader(headers, key, value) {
 	const lower = key.toLowerCase();
 	for (const name of Object.keys(headers ?? {})) {
@@ -36,4 +43,4 @@ function buildSubRequestHeaders(sourceRequest, isForward) {
 	);
 }
 
-export { buildSubRequestHeaders, deleteHeader, readHeader, STATE_HEADER, setHeader };
+export { buildSubRequestHeaders, deleteHeader, isEplayerXUserAgent, readHeader, STATE_HEADER, setHeader };

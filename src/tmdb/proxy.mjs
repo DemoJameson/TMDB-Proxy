@@ -6,9 +6,9 @@ import { applyCharacterTranslation } from "./characters.mjs";
 import { resolveProxyConfig } from "./config.mjs";
 import { normalizeAggregateCredits } from "./credits.mjs";
 import { applyGenreTranslation } from "./genres.mjs";
-import { deleteHeader, readHeader, STATE_HEADER, setHeader } from "./headers.mjs";
+import { deleteHeader, isEplayerXUserAgent, readHeader, STATE_HEADER, setHeader } from "./headers.mjs";
 import { applyTmdbRequestRules, encodeState, fetchTmdbWithNativeFetch } from "./request-rules.mjs";
-import { isTmdbImageRequest } from "./routes.mjs";
+import { isTmdbApiOriginHost, isTmdbImageRequest } from "./routes.mjs";
 
 function getDefaultFetcher() {
 	return globalThis.$task || globalThis.$httpClient ? utilFetch : fetchTmdbWithNativeFetch;
@@ -41,6 +41,7 @@ function isJsonResponse(response) {
 }
 
 async function applyTmdbResponseRules(request, response, options = {}) {
+	if (isEplayerXUserAgent(request.headers) && isTmdbApiOriginHost(new URL(request.url).hostname)) return response;
 	if (!isJsonResponse(response)) return response;
 	const state = { ...decodeState(readHeader(request.headers, STATE_HEADER)), ...options.state };
 	deleteHeader(request.headers, STATE_HEADER);

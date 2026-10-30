@@ -1,6 +1,6 @@
 import { createTmdbApiKeyProvider } from "./api-key.mjs";
 import { resolveProxyConfig } from "./config.mjs";
-import { STATE_HEADER, setHeader } from "./headers.mjs";
+import { isEplayerXUserAgent, STATE_HEADER, setHeader } from "./headers.mjs";
 import {
 	appendToResponse,
 	getRequestLanguage,
@@ -67,6 +67,18 @@ async function fetchTmdbWithNativeFetch(request) {
 
 async function applyTmdbRequestRules(request, options = {}) {
 	const url = new URL(request.url);
+	if (isEplayerXUserAgent(request.headers)) {
+		// 源 API 域名和 image.tmdb.org 图片原样放行；反代域名的图片和 API 请求一律拒绝。
+		if (isTmdbApiOriginHost(url.hostname) || (isTmdbImageOriginHost(url.hostname) && isTmdbImageRequest(url))) return { $request: request };
+		return {
+			$request: request,
+			$response: {
+				status: 403,
+				headers: { "content-type": "text/plain; charset=utf-8" },
+				body: "Forbidden",
+			},
+		};
+	}
 	const config = resolveProxyConfig({ argument: options.argument, env: options.env, url });
 	const route = parseTmdbRoute(url);
 	const state = {

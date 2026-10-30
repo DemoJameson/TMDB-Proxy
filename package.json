@@ -23,7 +23,7 @@
 		"hono"
 	],
 	"author": "DemoJameson",
-	"license": "MIT",
+	"license": "SEE LICENSE IN LICENSE",
 	"dependencies": {
 		"@hono/node-server": "^2.1.0",
 		"@nsnanocat/util": "^2.6.11",

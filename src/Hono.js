@@ -6,8 +6,10 @@ import { Response } from "./process/Response.mjs";
 import { getTmdbApiKey } from "./tmdb/api-key.mjs";
 import { RedisCacheStore } from "./tmdb/cache-redis.mjs";
 import { fireCacheWrite } from "./tmdb/cache-store.mjs";
+import { isEplayerXUserAgent } from "./tmdb/headers.mjs";
 import { injectTmdbCredential } from "./tmdb/proxy.mjs";
 import { fetchUpstream } from "./tmdb/request-rules.mjs";
+import { TMDB_PROXY_HOST } from "./tmdb/routes.mjs";
 
 // 模块级初始化（Worker isolate 复用）。
 let cacheStore = null;
@@ -70,6 +72,8 @@ export default new Hono()
 	.get("/key", handleApiKey)
 	.get("/api/key", handleApiKey)
 	.all("/:rest{.*}", async c => {
+		const originalUrl = new URL(c.req.url);
+		if (originalUrl.hostname === TMDB_PROXY_HOST && isEplayerXUserAgent(c.req.header())) return c.text("Forbidden", 403);
 		let $request = await HonoWorkerAdapter.buildRequest(c);
 		if (!$request) return c.text("Not Found", 404);
 		let $response;
