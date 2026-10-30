@@ -25,7 +25,7 @@
 	"author": "DemoJameson",
 	"license": "SEE LICENSE IN LICENSE",
 	"dependencies": {
-		"@hono/node-server": "^2.1.0",
+		"@hono/node-server": "^2.1.5",
 		"@nsnanocat/util": "^2.7.6",
 		"@upstash/redis": "^1.40.0",
 		"hono": "^4.13.14",
