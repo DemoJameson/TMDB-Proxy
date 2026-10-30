@@ -83,6 +83,72 @@ test("已有 api_key 时不会覆盖客户端参数", async () => {
 	assert.equal(new URL(request.url).searchParams.get("api_key"), "client-key");
 });
 
+test("User-Agent 以 EplayerX 开头时直接返回 403", async () => {
+	for (const userAgent of ["EplayerX", "eplayerx/1.0", "  EplayerX/2.0"]) {
+		const request = {
+			method: "GET",
+			url: "https://api.themoviedb.org/3/movie/550?language=zh-CN",
+			headers: { "User-Agent": userAgent },
+		};
+		const { $response } = await applyTmdbRequestRules(request, { argument: { aliasFallback: true }, env: TEST_ENV });
+		assert.equal($response?.status, 403);
+		assert.equal(new URL(request.url).searchParams.get("api_key"), null);
+	}
+});
+
+test("User-Agent 仅包含 EplayerX 但不在开头时正常处理", async () => {
+	const request = {
+		method: "GET",
+		url: "https://api.themoviedb.org/3/movie/550?language=zh-CN",
+		headers: { "User-Agent": "Mozilla/5.0 EplayerX" },
+	};
+	const { $response } = await applyTmdbRequestRules(request, { argument: { aliasFallback: true }, env: TEST_ENV });
+	assert.equal($response, undefined);
+	assert.equal(new URL(request.url).searchParams.get("api_key"), TEST_API_KEY);
+});
+
+test("EplayerX 的 image.tmdb.org 图片请求原样放行", async () => {
+	const imageUrl = "https://image.tmdb.org/t/p/w500/abc.jpg";
+	const request = {
+		method: "GET",
+		url: imageUrl,
+		headers: { "User-Agent": "EplayerX/1.0" },
+	};
+	const { $response } = await applyTmdbRequestRules(request, {
+		argument: { imageWebp: true, tmdbProxy: true },
+		env: TEST_ENV,
+	});
+	assert.equal($response, undefined);
+	assert.equal(request.url, imageUrl);
+	assert.equal(request.headers.Accept, undefined);
+});
+
+test("EplayerX 的 tmdb.demojameson.de5.net 图片和 API 请求返回 403", async () => {
+	for (const url of ["https://tmdb.demojameson.de5.net/t/p/w500/abc.jpg", "https://tmdb.demojameson.de5.net/3/movie/550?language=zh-CN"]) {
+		const request = { method: "GET", url, headers: { "User-Agent": "EplayerX/1.0" } };
+		const { $response } = await applyTmdbRequestRules(request, { argument: { imageWebp: true }, env: TEST_ENV });
+		assert.equal($response?.status, 403);
+	}
+});
+
+test("反代入口也会拒绝 User-Agent 以 EplayerX 开头的请求", async () => {
+	const response = await app.request("https://example.test/3/movie/550?language=zh-CN", {
+		headers: { "User-Agent": "EplayerX/1.0" },
+	});
+	assert.equal(response.status, 403);
+	assert.equal(await response.text(), "Forbidden");
+});
+
+test("反代域名会拒绝 EplayerX 的图片和 API 请求", async () => {
+	for (const path of ["/t/p/w500/abc.jpg", "/3/movie/550?language=zh-CN"]) {
+		const response = await app.request(`https://tmdb.demojameson.de5.net${path}`, {
+			headers: { "User-Agent": "EplayerX/1.0" },
+		});
+		assert.equal(response.status, 403);
+		assert.equal(await response.text(), "Forbidden");
+	}
+});
+
 test("vidora TMDB 域名参与代理规则", async () => {
 	assert.equal(isTmdbHost("vidora-tmdb.wwmm.date"), true);
 	const request = { method: "GET", url: "https://vidora-tmdb.wwmm.date/3/movie/634649?language=zh-CN", headers: {} };
