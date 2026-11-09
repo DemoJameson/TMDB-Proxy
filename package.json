@@ -33,7 +33,7 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.6.5",
-		"@rollup/plugin-commonjs": "^25.0.8",
+		"@rollup/plugin-commonjs": "^29.0.3",
 		"@rollup/plugin-json": "^6.1.0",
 		"@rollup/plugin-node-resolve": "^16.0.3",
 		"@rollup/plugin-terser": "^1.0.2",
