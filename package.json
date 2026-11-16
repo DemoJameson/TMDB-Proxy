@@ -27,7 +27,7 @@
 	"dependencies": {
 		"@hono/node-server": "^2.1.8",
 		"@nsnanocat/util": "^2.7.6",
-		"@upstash/redis": "^1.40.0",
+		"@upstash/redis": "^1.41.0",
 		"hono": "^4.13.18",
 		"opencc-js": "^1.4.2"
 	},
